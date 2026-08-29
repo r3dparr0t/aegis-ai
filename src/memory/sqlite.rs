@@ -1,0 +1,234 @@
+// src/memory/sqlite.rs
+use sqlx::SqlitePool;
+use uuid::Uuid;
+
+use crate::domain::{
+    EvaluationError, EvaluationResult, Lesson, LessonCandidate, LessonUsage,
+    LlmRequest, LlmResponse, MemoryQuery,
+};
+
+#[derive(Clone)]
+pub struct SqliteMemoryRepository {
+    pool: SqlitePool,
+}
+
+impl SqliteMemoryRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+
+    /// مقداردهی اولیه اسکیما و جدول‌ها
+    pub async fn init_db(&self) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS executions (
+                id TEXT PRIMARY KEY NOT NULL,
+                task_type TEXT NOT NULL,
+                input_prompt TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS attempts (
+                id TEXT PRIMARY KEY NOT NULL,
+                execution_id TEXT NOT NULL,
+                attempt_number INTEGER NOT NULL,
+                system_prompt TEXT NOT NULL,
+                output TEXT NOT NULL,
+                prompt_tokens INTEGER,
+                completion_tokens INTEGER,
+                latency_ms INTEGER NOT NULL,
+                FOREIGN KEY(execution_id) REFERENCES executions(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS evaluations (
+                id TEXT PRIMARY KEY NOT NULL,
+                attempt_id TEXT NOT NULL,
+                is_valid BOOLEAN NOT NULL,
+                error_category TEXT,
+                error_details TEXT,
+                FOREIGN KEY(attempt_id) REFERENCES attempts(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS lessons (
+                id TEXT PRIMARY KEY NOT NULL,
+                task_type TEXT NOT NULL,
+                error_category TEXT NOT NULL,
+                lesson_learned TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS lesson_usage (
+                id TEXT PRIMARY KEY NOT NULL,
+                lesson_id TEXT NOT NULL,
+                execution_id TEXT NOT NULL,
+                attempt_id TEXT NOT NULL,
+                resulted_in_success BOOLEAN NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                FOREIGN KEY(lesson_id) REFERENCES lessons(id)
+            );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// ثبت شروع یک Execution جدید
+    pub async fn create_execution(&self, task_type: &str, input_prompt: &str) -> Result<String, sqlx::Error> {
+        let id = Uuid::new_v4().to_string();
+        sqlx::query!(
+            "INSERT INTO executions (id, task_type, input_prompt) VALUES (?, ?, ?)",
+            id,
+            task_type,
+            input_prompt
+        )
+        .execute(&self.pool)
+        .await?;
+
+        Ok(id)
+    }
+
+    /// ثبت تلاش (Attempt) به همراه ارزیابی خروجی آن
+    pub async fn record_attempt(
+        &self,
+        execution_id: &str,
+        attempt_number: u32,
+        request: &LlmRequest,
+        response: &LlmResponse,
+        eval_result: &EvaluationResult,
+    ) -> Result<String, sqlx::Error> {
+        let attempt_id = Uuid::new_v4().to_string();
+        let prompt_tokens = response.prompt_tokens.map(|v| v as i64);
+        let completion_tokens = response.completion_tokens.map(|v| v as i64);
+        let latency_ms = response.latency_ms as i64;
+
+        // ۱. ثبت تلاش
+        sqlx::query!(
+            r#"
+            INSERT INTO attempts (id, execution_id, attempt_number, system_prompt, output, prompt_tokens, completion_tokens, latency_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+            attempt_id,
+            execution_id,
+            attempt_number,
+            request.system_prompt,
+            response.output,
+            prompt_tokens,
+            completion_tokens,
+            latency_ms
+        )
+        .execute(&self.pool)
+        .await?;
+
+        // ۲. ثبت نتیجه ارزیابی
+        let eval_id = Uuid::new_v4().to_string();
+        let error_cat_str = eval_result.error.as_ref().map(|e| e.to_string());
+
+        sqlx::query!(
+            r#"
+            INSERT INTO evaluations (id, attempt_id, is_valid, error_category, error_details)
+            VALUES (?, ?, ?, ?, ?)
+            "#,
+            eval_id,
+            attempt_id,
+            eval_result.is_valid,
+            error_cat_str,
+            eval_result.error_details
+        )
+        .execute(&self.pool)
+        .await?;
+
+        Ok(attempt_id)
+    }
+
+    /// ذخیره درس جدید استخراج شده
+    pub async fn save_lesson(
+        &self,
+        task_type: &str,
+        error_category: &EvaluationError,
+        lesson_learned: &str,
+    ) -> Result<String, sqlx::Error> {
+        let id = Uuid::new_v4().to_string();
+        let err_cat = error_category.to_string();
+
+        sqlx::query!(
+            r#"
+            INSERT INTO lessons (id, task_type, error_category, lesson_learned)
+            VALUES (?, ?, ?, ?)
+            "#,
+            id,
+            task_type,
+            err_cat,
+            lesson_learned
+        )
+        .execute(&self.pool)
+        .await?;
+
+        Ok(id)
+    }
+
+    /// بازیابی ترکیبی کاندیداهای درس از دیتابیس (بر اساس Task Type و Error Category)
+    pub async fn fetch_lessons(&self, query: &MemoryQuery) -> Result<Vec<LessonCandidate>, sqlx::Error> {
+        let err_cat_filter = query.error_category.as_ref().map(|e| e.to_string());
+
+        let rows = sqlx::query!(
+            r#"
+            SELECT id, task_type, error_category, lesson_learned
+            FROM lessons
+            WHERE task_type = ? OR error_category = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+            "#,
+            query.task_type,
+            err_cat_filter,
+            query.limit as i64
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let candidates = rows
+            .into_iter()
+            .map(|r| {
+                let err_cat = match r.error_category.as_str() {
+                    "invalid_json" => EvaluationError::InvalidJson,
+                    "schema_mismatch" => EvaluationError::SchemaMismatch,
+                    "missing_field" => EvaluationError::MissingField,
+                    "invalid_format" => EvaluationError::InvalidFormat,
+                    other => EvaluationError::Custom(other.to_string()),
+                };
+
+                LessonCandidate {
+                    lesson: Lesson {
+                        id: r.id,
+                        task_type: r.task_type,
+                        error_category: err_cat,
+                        lesson_learned: r.lesson_learned,
+                    },
+                    score: 1.0, // بعداً الگوریتم نمره‌دهی ترکیبی رو اینجا کامل می‌کنیم
+                }
+            })
+            .collect();
+
+        Ok(candidates)
+    }
+
+    /// ثبت سابقه استفاده از درس
+    pub async fn record_lesson_usage(&self, usage: &LessonUsage) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            INSERT INTO lesson_usage (id, lesson_id, execution_id, attempt_id, resulted_in_success)
+            VALUES (?, ?, ?, ?, ?)
+            "#,
+            usage.id,
+            usage.lesson_id,
+            usage.execution_id,
+            usage.attempt_id,
+            usage.resulted_in_success
+        )
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+}
