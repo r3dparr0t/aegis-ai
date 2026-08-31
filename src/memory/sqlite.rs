@@ -1,5 +1,5 @@
 // src/memory/sqlite.rs
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
 
 use crate::domain::{
@@ -77,14 +77,12 @@ impl SqliteMemoryRepository {
     /// ثبت شروع یک Execution جدید
     pub async fn create_execution(&self, task_type: &str, input_prompt: &str) -> Result<String, sqlx::Error> {
         let id = Uuid::new_v4().to_string();
-        sqlx::query!(
-            "INSERT INTO executions (id, task_type, input_prompt) VALUES (?, ?, ?)",
-            id,
-            task_type,
-            input_prompt
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("INSERT INTO executions (id, task_type, input_prompt) VALUES (?, ?, ?)")
+            .bind(&id)
+            .bind(task_type)
+            .bind(input_prompt)
+            .execute(&self.pool)
+            .await?;
 
         Ok(id)
     }
@@ -104,20 +102,20 @@ impl SqliteMemoryRepository {
         let latency_ms = response.latency_ms as i64;
 
         // ۱. ثبت تلاش
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO attempts (id, execution_id, attempt_number, system_prompt, output, prompt_tokens, completion_tokens, latency_ms)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             "#,
-            attempt_id,
-            execution_id,
-            attempt_number,
-            request.system_prompt,
-            response.output,
-            prompt_tokens,
-            completion_tokens,
-            latency_ms
         )
+        .bind(&attempt_id)
+        .bind(execution_id)
+        .bind(attempt_number as i64)
+        .bind(&request.system_prompt)
+        .bind(&response.output)
+        .bind(prompt_tokens)
+        .bind(completion_tokens)
+        .bind(latency_ms)
         .execute(&self.pool)
         .await?;
 
@@ -125,17 +123,17 @@ impl SqliteMemoryRepository {
         let eval_id = Uuid::new_v4().to_string();
         let error_cat_str = eval_result.error.as_ref().map(|e| e.to_string());
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO evaluations (id, attempt_id, is_valid, error_category, error_details)
             VALUES (?, ?, ?, ?, ?)
             "#,
-            eval_id,
-            attempt_id,
-            eval_result.is_valid,
-            error_cat_str,
-            eval_result.error_details
         )
+        .bind(eval_id)
+        .bind(&attempt_id)
+        .bind(eval_result.is_valid)
+        .bind(error_cat_str)
+        .bind(&eval_result.error_details)
         .execute(&self.pool)
         .await?;
 
@@ -152,27 +150,27 @@ impl SqliteMemoryRepository {
         let id = Uuid::new_v4().to_string();
         let err_cat = error_category.to_string();
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO lessons (id, task_type, error_category, lesson_learned)
             VALUES (?, ?, ?, ?)
             "#,
-            id,
-            task_type,
-            err_cat,
-            lesson_learned
         )
+        .bind(&id)
+        .bind(task_type)
+        .bind(err_cat)
+        .bind(lesson_learned)
         .execute(&self.pool)
         .await?;
 
         Ok(id)
     }
 
-    /// بازیابی ترکیبی کاندیداهای درس از دیتابیس (بر اساس Task Type و Error Category)
+    /// بازیابی ترکیبی کاندیداهای درس از دیتابیس
     pub async fn fetch_lessons(&self, query: &MemoryQuery) -> Result<Vec<LessonCandidate>, sqlx::Error> {
         let err_cat_filter = query.error_category.as_ref().map(|e| e.to_string());
 
-        let rows = sqlx::query!(
+        let rows = sqlx::query(
             r#"
             SELECT id, task_type, error_category, lesson_learned
             FROM lessons
@@ -180,17 +178,22 @@ impl SqliteMemoryRepository {
             ORDER BY created_at DESC
             LIMIT ?
             "#,
-            query.task_type,
-            err_cat_filter,
-            query.limit as i64
         )
+        .bind(&query.task_type)
+        .bind(err_cat_filter)
+        .bind(query.limit as i64)
         .fetch_all(&self.pool)
         .await?;
 
         let candidates = rows
             .into_iter()
             .map(|r| {
-                let err_cat = match r.error_category.as_str() {
+                let id: String = r.get("id");
+                let task_type: String = r.get("task_type");
+                let error_category_str: String = r.get("error_category");
+                let lesson_learned: String = r.get("lesson_learned");
+
+                let err_cat = match error_category_str.as_str() {
                     "invalid_json" => EvaluationError::InvalidJson,
                     "schema_mismatch" => EvaluationError::SchemaMismatch,
                     "missing_field" => EvaluationError::MissingField,
@@ -200,12 +203,12 @@ impl SqliteMemoryRepository {
 
                 LessonCandidate {
                     lesson: Lesson {
-                        id: r.id,
-                        task_type: r.task_type,
+                        id,
+                        task_type,
                         error_category: err_cat,
-                        lesson_learned: r.lesson_learned,
+                        lesson_learned,
                     },
-                    score: 1.0, // بعداً الگوریتم نمره‌دهی ترکیبی رو اینجا کامل می‌کنیم
+                    score: 1.0,
                 }
             })
             .collect();
@@ -215,17 +218,17 @@ impl SqliteMemoryRepository {
 
     /// ثبت سابقه استفاده از درس
     pub async fn record_lesson_usage(&self, usage: &LessonUsage) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO lesson_usage (id, lesson_id, execution_id, attempt_id, resulted_in_success)
             VALUES (?, ?, ?, ?, ?)
             "#,
-            usage.id,
-            usage.lesson_id,
-            usage.execution_id,
-            usage.attempt_id,
-            usage.resulted_in_success
         )
+        .bind(&usage.id)
+        .bind(&usage.lesson_id)
+        .bind(&usage.execution_id)
+        .bind(&usage.attempt_id)
+        .bind(usage.resulted_in_success)
         .execute(&self.pool)
         .await?;
 
