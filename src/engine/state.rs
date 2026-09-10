@@ -1,5 +1,5 @@
 // src/engine/state.rs
-use crate::domain::{EvaluationResult, Lesson, LlmResponse};
+use crate::domain::{EvaluationResult, LlmResponse};
 
 /// وضعیت‌های مختلف چرخه اجرا
 #[derive(Debug, Clone)]

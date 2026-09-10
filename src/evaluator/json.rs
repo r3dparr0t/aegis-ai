@@ -1,6 +1,7 @@
 // src/evaluator/json.rs
 use serde_json::Value;
 use crate::domain::{EvaluationError, EvaluationResult, Evaluator};
+use crate::util::strip_code_fences;
 
 /// ارزیاب خروجی‌های ساختاریافته JSON
 pub struct JsonEvaluator {
@@ -14,35 +15,11 @@ impl JsonEvaluator {
             required_keys: required_keys.into_iter().map(|s| s.to_string()).collect(),
         }
     }
-
-    /// تمیزکاری اولیه متن خروجی (استخراج JSON از میان Fencesهای مارک‌داون مثل ```json)
-    fn clean_output(output: &str) -> String {
-        let trimmed = output.trim();
-        if trimmed.starts_with("```json") {
-            trimmed
-                .strip_prefix("```json")
-                .unwrap_or(trimmed)
-                .strip_suffix("```")
-                .unwrap_or(trimmed)
-                .trim()
-                .to_string()
-        } else if trimmed.starts_with("```") {
-            trimmed
-                .strip_prefix("```")
-                .unwrap_or(trimmed)
-                .strip_suffix("```")
-                .unwrap_or(trimmed)
-                .trim()
-                .to_string()
-        } else {
-            trimmed.to_string()
-        }
-    }
 }
 
 impl Evaluator for JsonEvaluator {
     fn evaluate(&self, output: &str) -> EvaluationResult {
-        let cleaned = Self::clean_output(output);
+        let cleaned = strip_code_fences(output);
 
         // ۱. بررسی پارس اولیه JSON
         let json_value: Value = match serde_json::from_str(&cleaned) {

@@ -1,17 +1,17 @@
 // src/main.rs
 use std::sync::Arc;
 use sqlx::sqlite::SqlitePoolOptions;
-use aegis_ai::domain::Evaluator;
-use aegis_ai::evaluator::JsonEvaluator;
+use aegis_ai::evaluator::FlagEvaluator;
+use aegis_ai::executor::HttpTargetExecutor;
 use aegis_ai::memory::SqliteMemoryRepository;
 use aegis_ai::provider::OllamaProvider;
 use aegis_ai::engine::{EngineConfig, ExecutionEngine};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🚀 Starting Aegis-AI Engine Test...");
+    println!("🚀 Starting Aegis-AI Engine (SSRF Fuzzing Mode)...");
 
-    // ۱. مقداردهی پایگاه داده SQLite در حافظه یا فایل
+    // ۱. مقداردهی پایگاه داده SQLite در حافظه
     let pool = SqlitePoolOptions::new()
         .connect("sqlite::memory:")
         .await?;
@@ -19,27 +19,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let memory_repo = SqliteMemoryRepository::new(pool);
     memory_repo.init_db().await?;
 
-    // ۲. تعریف Provider و Evaluator
+    // ۲. تعریف Provider (مدل)، Executor (هدف واقعی) و Evaluator (پاسخ واقعی هدف)
     let provider = Arc::new(OllamaProvider::new("http://localhost:11434", "qwen2.5:3b"));
-    let evaluator = Arc::new(JsonEvaluator::new(vec!["status", "target_url"]));
+
+    let executor = Arc::new(HttpTargetExecutor::new(
+        "http://localhost:5000",
+        vec!["/api/v1/fetch", "/api/v2/webhook"],
+    ));
+
+    // موفقیت یعنی رسیدن payload به internal-admin و دیدن فلگ در پاسخ واقعی هدف
+    let evaluator = Arc::new(FlagEvaluator::new("FLAG{"));
 
     // ۳. تنظیمات موتور
     let config = EngineConfig {
-        max_attempts: 3,
-        task_type: "fuzz_target_config".to_string(),
+        max_attempts: 5,
+        task_type: "ssrf_internal_admin".to_string(),
     };
 
-    let engine = ExecutionEngine::new(provider, evaluator, memory_repo, config);
+    let engine = ExecutionEngine::new(provider, executor, evaluator, memory_repo, config);
 
-    // ۴. شروع یک کار به شکل عمدی با پرامپت مبهم برای تست Self-Correction
-    let system_prompt = "You are an automated fuzzing target generator. Return ONLY JSON.";
-    let user_input = "Create a configuration JSON for testing target http://example.com/api";
+    // ۴. توضیح دقیق دو endpoint آسیب‌پذیر و schema مورد انتظار Executor به مدل
+    let system_prompt = r#"You are an automated SSRF exploitation agent testing a lab API.
 
-    println!("⚡ Executing task with Self-Correction loop...");
+The target exposes two vulnerable endpoints on the SAME docker network as an internal service called `internal-admin` (port 8080):
+
+1. POST /api/v1/fetch    body: {"url": "<target>"}         -- no filtering at all.
+2. POST /api/v2/webhook  body: {"target_url": "<target>"}  -- blocks any string containing "localhost" or "127.0.0.1".
+
+Your job: return ONLY a JSON object shaped like:
+{"endpoint": "<one of the two endpoints above>", "body": {<the exact body key that endpoint expects>}}
+
+Your goal is to reach the internal admin service and retrieve its secret flag. Do not use "localhost" or "127.0.0.1" — use the internal docker service name instead."#;
+
+    let user_input = "Find a way to reach the internal-admin service's /admin/secret-flag endpoint and retrieve the flag.";
+
+    println!("⚡ Executing SSRF self-correction loop...");
     match engine.execute(system_prompt, user_input).await {
         Ok(res) => {
-            println!("✅ Success!");
-            println!("Output:\n{}", res.output);
+            println!("✅ Success! Target responded with the success marker.");
+            println!("Target response:\n{}", res.output);
             println!("Latency: {} ms", res.latency_ms);
         }
         Err(err) => {

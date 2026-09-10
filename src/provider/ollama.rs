@@ -2,7 +2,7 @@
 use std::time::Instant;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use crate::domain::{LlmProvider, LlmRequest, LlmResponse};
+use crate::domain::{LlmError, LlmProvider, LlmRequest, LlmResponse};
 
 /// DTO برای ارسال درخواست به REST API در Ollama (/api/generate)
 #[derive(Serialize)]
@@ -14,6 +14,7 @@ struct OllamaGenerateRequest<'a> {
 }
 
 /// DTO برای دریافت پاسخ از Ollama
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct OllamaGenerateResponse {
     response: String,
@@ -41,12 +42,12 @@ impl OllamaProvider {
 
 #[async_trait]
 impl LlmProvider for OllamaProvider {
-    async fn generate(&self, request: &LlmRequest) -> Result<LlmResponse, String> {
+    async fn generate(&self, request: &LlmRequest) -> Result<LlmResponse, LlmError> {
         let endpoint = format!("{}/api/generate", self.base_url.trim_end_matches('/'));
 
         let payload = OllamaGenerateRequest {
             model: &self.model_name,
-            prompt: &request.user_prompt,
+            prompt: &request.user_input,
             system: &request.system_prompt,
             stream: false,
         };
@@ -59,24 +60,33 @@ impl LlmProvider for OllamaProvider {
             .json(&payload)
             .send()
             .await
-            .map_err(|e| format!("HTTP request to Ollama failed: {}", e))?;
+            .map_err(|e| {
+                if e.is_timeout() {
+                    LlmError::Timeout
+                } else {
+                    LlmError::ProviderUnavailable(e.to_string())
+                }
+            })?;
 
         if !http_response.status().is_success() {
-            return Err(format!(
-                "Ollama returned error status: {}",
-                http_response.status()
-            ));
+            let status = http_response.status();
+            return Err(if status.as_u16() == 429 {
+                LlmError::RateLimited
+            } else {
+                LlmError::ProviderUnavailable(format!("Ollama returned status: {}", status))
+            });
         }
 
         let ollama_res: OllamaGenerateResponse = http_response
             .json()
             .await
-            .map_err(|e| format!("Failed to parse Ollama JSON response: {}", e))?;
+            .map_err(|e| LlmError::InvalidResponse(e.to_string()))?;
 
         let latency_ms = start_time.elapsed().as_millis() as u64;
 
         Ok(LlmResponse {
             output: ollama_res.response,
+            model: Some(self.model_name.clone()),
             prompt_tokens: ollama_res.prompt_eval_count,
             completion_tokens: ollama_res.eval_count,
             latency_ms,
