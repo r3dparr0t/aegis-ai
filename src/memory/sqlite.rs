@@ -166,26 +166,39 @@ impl SqliteMemoryRepository {
         Ok(id)
     }
 
-    /// بازیابی ترکیبی کاندیداهای درس از دیتابیس
+    /// بازیابی ترکیبی کاندیداهای درس از دیتابیس: ابتدا با task_type/error_category فیلتر می‌شود،
+    /// سپس بر اساس همپوشانی کلیدواژه‌ای با query_text امتیازدهی و مرتب‌سازی می‌شود.
     pub async fn fetch_lessons(&self, query: &MemoryQuery) -> Result<Vec<LessonCandidate>, sqlx::Error> {
         let err_cat_filter = query.error_category.as_ref().map(|e| e.to_string());
 
+        // نکته: قبلاً این شرط با OR نوشته شده بود که باعث می‌شد Lessonهای task_typeهای
+        // کاملاً نامرتبط هم برگردند اگر error_category تصادفاً یکسان بود. اینجا همیشه
+        // در چارچوب task_type می‌مانیم و error_category فقط در صورت وجود، فیلتر اضافه اعمال می‌کند.
         let rows = sqlx::query(
             r#"
             SELECT id, task_type, error_category, lesson_learned
             FROM lessons
-            WHERE task_type = ? OR error_category = ?
+            WHERE task_type = ?
+              AND (? IS NULL OR error_category = ?)
             ORDER BY created_at DESC
-            LIMIT ?
             "#,
         )
         .bind(&query.task_type)
+        .bind(err_cat_filter.clone())
         .bind(err_cat_filter)
-        .bind(query.limit as i64)
         .fetch_all(&self.pool)
         .await?;
 
-        let candidates = rows
+        // کلیدواژه‌های ساده از query_text برای امتیازدهی شباهت (Keyword Indexing سبک)
+        let query_words: Vec<String> = query
+            .query_text
+            .to_lowercase()
+            .split_whitespace()
+            .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_string())
+            .filter(|w| w.len() > 2)
+            .collect();
+
+        let mut candidates: Vec<LessonCandidate> = rows
             .into_iter()
             .map(|r| {
                 let id: String = r.get("id");
@@ -201,6 +214,19 @@ impl SqliteMemoryRepository {
                     other => EvaluationError::Custom(other.to_string()),
                 };
 
+                let lesson_lower = lesson_learned.to_lowercase();
+                let overlap = query_words
+                    .iter()
+                    .filter(|w| lesson_lower.contains(w.as_str()))
+                    .count();
+
+                // پایه‌ی امتیاز ۱.۰ (تعلق به همان task_type) به‌علاوه‌ی نسبت همپوشانی کلیدواژه‌ای
+                let score = if query_words.is_empty() {
+                    1.0
+                } else {
+                    1.0 + (overlap as f32 / query_words.len() as f32)
+                };
+
                 LessonCandidate {
                     lesson: Lesson {
                         id,
@@ -208,10 +234,13 @@ impl SqliteMemoryRepository {
                         error_category: err_cat,
                         lesson_learned,
                     },
-                    score: 1.0,
+                    score,
                 }
             })
             .collect();
+
+        candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        candidates.truncate(query.limit);
 
         Ok(candidates)
     }

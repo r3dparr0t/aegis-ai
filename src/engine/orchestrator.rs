@@ -1,8 +1,9 @@
 // src/engine/orchestrator.rs
 use std::sync::Arc;
+use uuid::Uuid;
 use crate::domain::{
-    EvaluationError, EvaluationResult, Evaluator, LlmProvider, LlmRequest, LlmResponse, MemoryQuery,
-    TargetExecutor,
+    EvaluationError, EvaluationResult, Evaluator, LessonUsage, LlmProvider, LlmRequest, LlmResponse,
+    MemoryQuery, TargetExecutor,
 };
 use crate::memory::SqliteMemoryRepository;
 use crate::util::strip_code_fences;
@@ -10,6 +11,12 @@ use crate::util::strip_code_fences;
 pub struct EngineConfig {
     pub max_attempts: u32,
     pub task_type: String,
+}
+
+/// یک Lesson که در پرامپت یک attempt خاص تزریق شده؛ id برای ثبت بعدی در lesson_usage نگه داشته می‌شود
+struct AppliedLesson {
+    id: String,
+    text: String,
 }
 
 pub struct ExecutionEngine {
@@ -48,7 +55,7 @@ impl ExecutionEngine {
             .map_err(|e| format!("DB Error creating execution: {}", e))?;
 
         let mut current_attempt = 1;
-        let mut accumulated_lessons: Vec<String> = Vec::new();
+        let mut accumulated_lessons: Vec<AppliedLesson> = Vec::new();
 
         // ۲. بازیابی اولیه‌ی حافظه (Lessons) پیش از اولین تلاش
         let query = MemoryQuery {
@@ -60,7 +67,10 @@ impl ExecutionEngine {
 
         if let Ok(candidates) = self.memory_repo.fetch_lessons(&query).await {
             for cand in candidates {
-                accumulated_lessons.push(cand.lesson.lesson_learned);
+                accumulated_lessons.push(AppliedLesson {
+                    id: cand.lesson.id,
+                    text: cand.lesson.lesson_learned,
+                });
             }
         }
 
@@ -71,6 +81,10 @@ impl ExecutionEngine {
                     execution_id, self.config.max_attempts
                 ));
             }
+
+            // Lessonهایی که دقیقاً در همین attempt به پرامپت تزریق می‌شوند (برای ثبت بعدی در lesson_usage)
+            let lesson_ids_used_this_attempt: Vec<String> =
+                accumulated_lessons.iter().map(|l| l.id.clone()).collect();
 
             // ساخت پرامپت نهایی با اعمال درس‌های قبلی در Context Assembler ساده
             let dynamic_system_prompt = self.assemble_prompt(system_prompt, &accumulated_lessons);
@@ -111,6 +125,7 @@ impl ExecutionEngine {
                         &request,
                         &response,
                         &eval_result,
+                        &lesson_ids_used_this_attempt,
                         &mut accumulated_lessons,
                     )
                     .await?;
@@ -134,6 +149,7 @@ impl ExecutionEngine {
                         &request,
                         &response,
                         &eval_result,
+                        &lesson_ids_used_this_attempt,
                         &mut accumulated_lessons,
                     )
                     .await?;
@@ -160,6 +176,7 @@ impl ExecutionEngine {
                 &request,
                 &recorded_response,
                 &eval_result,
+                &lesson_ids_used_this_attempt,
                 &mut accumulated_lessons,
             )
             .await?;
@@ -173,7 +190,8 @@ impl ExecutionEngine {
         }
     }
 
-    /// ثبت یک تلاش در دیتابیس و در صورت شکست، استخراج و ذخیره‌ی Lesson جدید (فاز Reflecting)
+    /// ثبت یک تلاش در دیتابیس، ثبت اثر Lessonهای استفاده‌شده در همین تلاش (lesson_usage)،
+    /// و در صورت شکست، استخراج و ذخیره‌ی Lesson جدید (فاز Reflecting)
     async fn record_attempt_and_learn(
         &self,
         execution_id: &str,
@@ -181,13 +199,28 @@ impl ExecutionEngine {
         request: &LlmRequest,
         response: &LlmResponse,
         eval_result: &EvaluationResult,
-        accumulated_lessons: &mut Vec<String>,
+        lesson_ids_used: &[String],
+        accumulated_lessons: &mut Vec<AppliedLesson>,
     ) -> Result<(), String> {
-        let _attempt_id = self
+        let attempt_id = self
             .memory_repo
             .record_attempt(execution_id, attempt_number, request, response, eval_result)
             .await
             .map_err(|e| format!("DB Error recording attempt: {}", e))?;
+
+        // برای هر Lesson که در پرامپت همین attempt تزریق شده بود، ثبت می‌کنیم که آیا
+        // نتیجه‌ی این تلاش موفقیت‌آمیز بود یا نه (پایه‌ی محاسبه‌ی success_rate در آینده)
+        for lesson_id in lesson_ids_used {
+            let usage = LessonUsage {
+                id: Uuid::new_v4().to_string(),
+                lesson_id: lesson_id.clone(),
+                execution_id: execution_id.to_string(),
+                attempt_id: attempt_id.clone(),
+                resulted_in_success: eval_result.is_valid,
+            };
+            // شکست در ثبت usage نباید کل اجرای engine را متوقف کند
+            let _ = self.memory_repo.record_lesson_usage(&usage).await;
+        }
 
         if eval_result.is_valid {
             return Ok(());
@@ -204,19 +237,23 @@ impl ExecutionEngine {
                 err_cat, err_details
             );
 
-            let _ = self
+            if let Ok(new_lesson_id) = self
                 .memory_repo
                 .save_lesson(&self.config.task_type, err_cat, &lesson_text)
-                .await;
-
-            accumulated_lessons.push(lesson_text);
+                .await
+            {
+                accumulated_lessons.push(AppliedLesson {
+                    id: new_lesson_id,
+                    text: lesson_text,
+                });
+            }
         }
 
         Ok(())
     }
 
     /// ترکیب سیستم پرامپت با حافظه درس‌آموخته‌ها (Context Assembler)
-    fn assemble_prompt(&self, base_system_prompt: &str, lessons: &[String]) -> String {
+    fn assemble_prompt(&self, base_system_prompt: &str, lessons: &[AppliedLesson]) -> String {
         if lessons.is_empty() {
             return base_system_prompt.to_string();
         }
@@ -224,7 +261,7 @@ impl ExecutionEngine {
         let lessons_block = lessons
             .iter()
             .enumerate()
-            .map(|(i, l)| format!("{}. {}", i + 1, l))
+            .map(|(i, l)| format!("{}. {}", i + 1, l.text))
             .collect::<Vec<_>>()
             .join("\n");
 

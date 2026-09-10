@@ -11,9 +11,9 @@ use aegis_ai::engine::{EngineConfig, ExecutionEngine};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Starting Aegis-AI Engine (SSRF Fuzzing Mode)...");
 
-    // ۱. مقداردهی پایگاه داده SQLite در حافظه
+    // ۱. مقداردهی پایگاه داده SQLite دائمی (نه در حافظه) تا Lessonها بین اجراها باقی بمانند
     let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
+        .connect("sqlite://aegis.db?mode=rwc")
         .await?;
 
     let memory_repo = SqliteMemoryRepository::new(pool);
