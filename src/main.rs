@@ -28,6 +28,23 @@ fn prompt(message: &str, default: &str) -> String {
     }
 }
 
+/// مثل prompt، ولی مقدار خیلی کوتاه رو رد می‌کنه و دوباره می‌پرسه.
+/// یه success_marker خیلی کوتاه (مثل یک کاراکتر تنها) می‌تونه به‌طور تصادفی تو هر پاسخی
+/// match بشه (false positive)، پس حداقل طول رو اجباری می‌کنیم.
+fn prompt_min_len(message: &str, default: &str, min_len: usize) -> String {
+    loop {
+        let value = prompt(message, default);
+        if value.chars().count() >= min_len {
+            return value;
+        }
+        println!(
+            "⚠️  Too short ({} char(s)). A marker that short can match unrelated text by accident. Please enter at least {} characters.",
+            value.chars().count(),
+            min_len
+        );
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Aegis-AI Engine (SSRF Fuzzing Mode)\n");
@@ -37,15 +54,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .connect("sqlite://aegis.db?mode=rwc")
         .await?;
 
+    // اجرای migrationهای واقعی از پوشه‌ی migrations/ (به‌جای CREATE TABLE IF NOT EXISTS دستی)
+    sqlx::migrate!("./migrations").run(&pool).await?;
+
     let memory_repo = SqliteMemoryRepository::new(pool);
-    memory_repo.init_db().await?;
 
     // ۲. تعریف Provider (مدل)، Executor (هدف واقعی) و Evaluator (پاسخ واقعی هدف)
     // این سه‌تا بین هر دو سناریوی زیر مشترکن؛ فقط task_type و system prompt فرق می‌کنه.
     let ollama_url = prompt("Ollama base URL", "http://localhost:11434");
     let model_name = prompt("Ollama model", "qwen2.5:3b");
     let target_base_url = prompt("Vulnerable target base URL", "http://localhost:5000");
-    let success_marker = prompt("Success marker to look for in target responses", "FLAG{");
+    let success_marker = prompt_min_len("Success marker to look for in target responses", "FLAG{", 4);
     let max_attempts: u32 = prompt("Max attempts per task", "5").parse().unwrap_or(5);
 
     let provider = Arc::new(OllamaProvider::new(ollama_url, model_name));
