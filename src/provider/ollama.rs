@@ -4,6 +4,15 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use crate::domain::{LlmError, LlmProvider, LlmRequest, LlmResponse};
 
+/// DTO برای گزینه‌های نمونه‌گیری Ollama (temperature, num_predict و ...)
+#[derive(Serialize)]
+struct OllamaOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    num_predict: Option<u32>,
+}
+
 /// DTO برای ارسال درخواست به REST API در Ollama (/api/generate)
 #[derive(Serialize)]
 struct OllamaGenerateRequest<'a> {
@@ -11,12 +20,15 @@ struct OllamaGenerateRequest<'a> {
     prompt: &'a str,
     system: &'a str,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    options: Option<OllamaOptions>,
 }
 
 /// DTO برای دریافت پاسخ از Ollama
 #[derive(Deserialize)]
 struct OllamaGenerateResponse {
     response: String,
+    #[allow(dead_code)]
     done: bool,
     prompt_eval_count: Option<u32>,
     eval_count: Option<u32>,
@@ -44,11 +56,22 @@ impl LlmProvider for OllamaProvider {
     async fn generate(&self, request: &LlmRequest) -> Result<LlmResponse, LlmError> {
         let endpoint = format!("{}/api/generate", self.base_url.trim_end_matches('/'));
 
+        let has_options = request.temperature.is_some() || request.max_tokens.is_some();
+        let options = if has_options {
+            Some(OllamaOptions {
+                temperature: request.temperature,
+                num_predict: request.max_tokens,
+            })
+        } else {
+            None
+        };
+
         let payload = OllamaGenerateRequest {
             model: &self.model_name,
             prompt: &request.user_input,
             system: &request.system_prompt,
             stream: false,
+            options,
         };
 
         let start_time = Instant::now();

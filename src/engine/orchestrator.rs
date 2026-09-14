@@ -105,7 +105,7 @@ impl ExecutionEngine {
             let request = LlmRequest {
                 system_prompt: dynamic_system_prompt,
                 user_input: user_input.to_string(),
-                temperature: Some(0.2), // مقدار کم برای دقت بالادستی
+                temperature: Some(0.8), // مقدار بالاتر تا attemptهای مختلف واقعاً payload متفاوت امتحان کنند
                 max_tokens: None,
             };
 
@@ -264,10 +264,7 @@ impl ExecutionEngine {
                 .as_deref()
                 .unwrap_or("No details provided");
 
-            let lesson_text = format!(
-                "AVOID ERROR [{}]: Previous attempt was rejected because: '{}'. Try a different payload next time.",
-                err_cat, err_details
-            );
+            let lesson_text = self.build_lesson_text(err_cat, err_details);
 
             if let Ok(new_lesson_id) = self
                 .memory_repo
@@ -283,6 +280,57 @@ impl ExecutionEngine {
         }
 
         Ok(())
+    }
+
+    /// از روی متن خام خطا (که اغلب dump یه exception پایتونیه)، در صورت امکان یک درس
+    /// *قابل‌عمل* استخراج می‌کند به‌جای برگردوندن خام همون پیام به مدل.
+    fn build_lesson_text(&self, err_cat: &EvaluationError, err_details: &str) -> String {
+        // الگوی رایج: اتصال به پورت اشتباه (Connection refused + port=N)
+        if err_details.contains("Connection refused") {
+            if let Some(port) = Self::extract_port(err_details) {
+                return format!(
+                    "AVOID ERROR: You connected to port {} and got 'Connection refused'. \
+                     That port is wrong for this internal service. Re-read the system prompt \
+                     for the exact correct port number and include it explicitly in the URL \
+                     as host:PORT (e.g. http://internal-admin:CORRECT_PORT/...).",
+                    port
+                );
+            }
+        }
+
+        // الگوی رایج: نبود scheme در URL (requests نمی‌تونه آداپتور پیدا کنه)
+        if err_details.contains("No connection adapters were found") {
+            return "AVOID ERROR: Your URL was missing a valid scheme (http:// or https://). \
+                    Always include the full scheme at the start of the URL."
+                .to_string();
+        }
+
+        // الگوی رایج: خطای DNS/hostname
+        if err_details.contains("Name or service not known")
+            || err_details.contains("nodename nor servname provided")
+        {
+            return "AVOID ERROR: The hostname you used could not be resolved. \
+                    Use the exact internal service name given in the system prompt, spelled correctly."
+                .to_string();
+        }
+
+        // پیش‌فرض: همون رفتار قبلی (dump خام خطا)، برای موارد ناشناخته
+        format!(
+            "AVOID ERROR [{}]: Previous attempt was rejected because: '{}'. Try a different payload next time.",
+            err_cat, err_details
+        )
+    }
+
+    /// استخراج شماره پورت از رشته‌هایی مثل "port=80)" که در exceptionهای requests/urllib3 پایتون رایجه
+    fn extract_port(text: &str) -> Option<&str> {
+        let idx = text.find("port=")?;
+        let after = &text[idx + "port=".len()..];
+        let end = after.find(|c: char| !c.is_ascii_digit()).unwrap_or(after.len());
+        if end == 0 {
+            None
+        } else {
+            Some(&after[..end])
+        }
     }
 
     /// ترکیب سیستم پرامپت با حافظه درس‌آموخته‌ها (Context Assembler)
