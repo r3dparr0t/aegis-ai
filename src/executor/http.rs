@@ -19,8 +19,15 @@ pub struct HttpTargetExecutor {
 
 impl HttpTargetExecutor {
     pub fn new(base_url: impl Into<String>, allowed_endpoints: Vec<&str>) -> Self {
+        // redirect::Policy::none() عمداً: چون هدف SSRF fuzzing است، نباید اجازه بدیم یک
+        // ریدایرکت از سمت هدف، درخواست را به جایی خارج از allowed_endpoints هدایت کند.
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("failed to build reqwest client for HttpTargetExecutor");
+
         Self {
-            client: reqwest::Client::new(),
+            client,
             base_url: base_url.into(),
             allowed_endpoints: allowed_endpoints.into_iter().map(String::from).collect(),
         }

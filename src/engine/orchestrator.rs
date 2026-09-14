@@ -2,8 +2,8 @@
 use std::sync::Arc;
 use uuid::Uuid;
 use crate::domain::{
-    EvaluationError, EvaluationResult, Evaluator, LessonUsage, LlmProvider, LlmRequest, LlmResponse,
-    MemoryQuery, TargetExecutor,
+    EngineError, EvaluationError, EvaluationResult, Evaluator, LessonUsage, LlmProvider, LlmRequest,
+    LlmResponse, MemoryQuery, TargetExecutor,
 };
 use crate::memory::SqliteMemoryRepository;
 use crate::util::strip_code_fences;
@@ -46,13 +46,13 @@ impl ExecutionEngine {
 
     /// اجرای اصلی حلقه Self-Correction:
     /// Generate (مدل payload می‌سازد) -> Execute (payload واقعاً به هدف زده می‌شود) -> Evaluate (پاسخ واقعی هدف بررسی می‌شود) -> Reflect
-    pub async fn execute(&self, system_prompt: &str, user_input: &str) -> Result<LlmResponse, String> {
+    pub async fn execute(&self, system_prompt: &str, user_input: &str) -> Result<LlmResponse, EngineError> {
         // ۱. ایجاد رکورد Execution جدید در دیتابیس
         let execution_id = self
             .memory_repo
             .create_execution(&self.config.task_type, user_input)
             .await
-            .map_err(|e| format!("DB Error creating execution: {}", e))?;
+            .map_err(|e| EngineError::Database(e.to_string()))?;
 
         let mut current_attempt = 1;
         let mut accumulated_lessons: Vec<AppliedLesson> = Vec::new();
@@ -76,10 +76,10 @@ impl ExecutionEngine {
 
         loop {
             if current_attempt > self.config.max_attempts {
-                return Err(format!(
-                    "Execution {} failed: Exceeded max attempts ({})",
-                    execution_id, self.config.max_attempts
-                ));
+                return Err(EngineError::MaxAttemptsExceeded {
+                    execution_id: execution_id.clone(),
+                    attempts: self.config.max_attempts,
+                });
             }
 
             // Lessonهایی که دقیقاً در همین attempt به پرامپت تزریق می‌شوند (برای ثبت بعدی در lesson_usage)
@@ -118,7 +118,7 @@ impl ExecutionEngine {
                         current_attempt += 1;
                         continue;
                     }
-                    return Err(format!("LLM Transport Error: {}", err));
+                    return Err(EngineError::Llm(err));
                 }
             };
 
@@ -233,12 +233,12 @@ impl ExecutionEngine {
         eval_result: &EvaluationResult,
         lesson_ids_used: &[String],
         accumulated_lessons: &mut Vec<AppliedLesson>,
-    ) -> Result<(), String> {
+    ) -> Result<(), EngineError> {
         let attempt_id = self
             .memory_repo
             .record_attempt(execution_id, attempt_number, request, response, eval_result)
             .await
-            .map_err(|e| format!("DB Error recording attempt: {}", e))?;
+            .map_err(|e| EngineError::Database(e.to_string()))?;
 
         // برای هر Lesson که در پرامپت همین attempt تزریق شده بود، ثبت می‌کنیم که آیا
         // نتیجه‌ی این تلاش موفقیت‌آمیز بود یا نه (پایه‌ی محاسبه‌ی success_rate در آینده)
