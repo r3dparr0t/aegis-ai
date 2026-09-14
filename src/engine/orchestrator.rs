@@ -86,6 +86,19 @@ impl ExecutionEngine {
             let lesson_ids_used_this_attempt: Vec<String> =
                 accumulated_lessons.iter().map(|l| l.id.clone()).collect();
 
+            println!(
+                "\n🔁 [Attempt {}/{}] execution_id={}",
+                current_attempt, self.config.max_attempts, execution_id
+            );
+            if accumulated_lessons.is_empty() {
+                println!("🧠 No lessons injected (first attempt or no relevant memory).");
+            } else {
+                println!("🧠 Injecting {} lesson(s) into prompt:", accumulated_lessons.len());
+                for l in &accumulated_lessons {
+                    println!("   - [{}] {}", &l.id[..8.min(l.id.len())], l.text);
+                }
+            }
+
             // ساخت پرامپت نهایی با اعمال درس‌های قبلی در Context Assembler ساده
             let dynamic_system_prompt = self.assemble_prompt(system_prompt, &accumulated_lessons);
 
@@ -109,11 +122,14 @@ impl ExecutionEngine {
                 }
             };
 
+            println!("📝 Model raw output:\n{}", response.output);
+
             // ۳. تلاش برای پارس کردن خروجی مدل به‌عنوان payload معتبر برای Executor
             let cleaned = strip_code_fences(&response.output);
             let payload: serde_json::Value = match serde_json::from_str(&cleaned) {
                 Ok(v) => v,
                 Err(err) => {
+                    println!("❌ Not valid JSON: {}", err);
                     let eval_result = EvaluationResult {
                         is_valid: false,
                         error: Some(EvaluationError::InvalidJson),
@@ -135,9 +151,11 @@ impl ExecutionEngine {
             };
 
             // ۴. اجرای واقعی payload روی هدف (Execute)
+            println!("🎯 Sending payload to target: {}", payload);
             let outcome = match self.executor.execute(&payload).await {
                 Ok(o) => o,
                 Err(err) => {
+                    println!("❌ Executor error: {}", err);
                     let eval_result = EvaluationResult {
                         is_valid: false,
                         error: Some(EvaluationError::Custom(err.to_string())),
@@ -159,7 +177,21 @@ impl ExecutionEngine {
             };
 
             // ۵. ارزیابی پاسخ *واقعی هدف* (نه خروجی خام مدل)
+            println!(
+                "📡 Target responded [{}]: {}",
+                outcome.status_code,
+                outcome.body.chars().take(300).collect::<String>()
+            );
             let eval_result = self.evaluator.evaluate(&outcome.body);
+            if eval_result.is_valid {
+                println!("✅ Evaluator: PASSED");
+            } else {
+                println!(
+                    "❌ Evaluator: FAILED [{}] - {}",
+                    eval_result.error.as_ref().map(|e| e.to_string()).unwrap_or_default(),
+                    eval_result.error_details.as_deref().unwrap_or("")
+                );
+            }
 
             // نسخه‌ای از پاسخ برای ثبت/بازگشت که بدنه‌اش پاسخ واقعی هدف است، نه متن خام مدل
             let recorded_response = LlmResponse {
@@ -242,6 +274,7 @@ impl ExecutionEngine {
                 .save_lesson(&self.config.task_type, err_cat, &lesson_text)
                 .await
             {
+                println!("💾 Saved new lesson [{}]: {}", &new_lesson_id[..8.min(new_lesson_id.len())], lesson_text);
                 accumulated_lessons.push(AppliedLesson {
                     id: new_lesson_id,
                     text: lesson_text,

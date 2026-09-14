@@ -14,7 +14,6 @@ struct OllamaGenerateRequest<'a> {
 }
 
 /// DTO برای دریافت پاسخ از Ollama
-#[allow(dead_code)]
 #[derive(Deserialize)]
 struct OllamaGenerateResponse {
     response: String,
