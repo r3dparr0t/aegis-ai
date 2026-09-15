@@ -5,6 +5,7 @@ use crate::domain::{
     EngineError, EvaluationError, EvaluationResult, Evaluator, LessonUsage, LlmProvider, LlmRequest,
     LlmResponse, MemoryQuery, TargetExecutor,
 };
+use crate::engine::state::ExecutionState;
 use crate::memory::SqliteMemoryRepository;
 use crate::util::strip_code_fences;
 
@@ -44,6 +45,10 @@ impl ExecutionEngine {
         }
     }
 
+    fn log_transition(state: &ExecutionState) {
+        println!("🔷 [STATE] {}", state);
+    }
+
     /// اجرای اصلی حلقه Self-Correction:
     /// Generate (مدل payload می‌سازد) -> Execute (payload واقعاً به هدف زده می‌شود) -> Evaluate (پاسخ واقعی هدف بررسی می‌شود) -> Reflect
     pub async fn execute(&self, system_prompt: &str, user_input: &str) -> Result<LlmResponse, EngineError> {
@@ -74,8 +79,14 @@ impl ExecutionEngine {
             }
         }
 
+        Self::log_transition(&ExecutionState::Preparing);
+
         loop {
             if current_attempt > self.config.max_attempts {
+                Self::log_transition(&ExecutionState::Failed {
+                    reason: "Exceeded max attempts".to_string(),
+                    attempts_count: self.config.max_attempts,
+                });
                 return Err(EngineError::MaxAttemptsExceeded {
                     execution_id: execution_id.clone(),
                     attempts: self.config.max_attempts,
@@ -110,6 +121,7 @@ impl ExecutionEngine {
             };
 
             // ارسال درخواست به LLM تا payload حمله را بسازد
+            Self::log_transition(&ExecutionState::Generating);
             let response = match self.provider.generate(&request).await {
                 Ok(res) => res,
                 Err(err) => {
@@ -118,11 +130,16 @@ impl ExecutionEngine {
                         current_attempt += 1;
                         continue;
                     }
+                    Self::log_transition(&ExecutionState::Failed {
+                        reason: format!("LLM transport error: {}", err),
+                        attempts_count: current_attempt,
+                    });
                     return Err(EngineError::Llm(err));
                 }
             };
 
             println!("📝 Model raw output:\n{}", response.output);
+            Self::log_transition(&ExecutionState::Evaluating { response: response.clone() });
 
             // ۳. تلاش برای پارس کردن خروجی مدل به‌عنوان payload معتبر برای Executor
             let cleaned = strip_code_fences(&response.output);
@@ -151,6 +168,7 @@ impl ExecutionEngine {
             };
 
             // ۴. اجرای واقعی payload روی هدف (Execute)
+            Self::log_transition(&ExecutionState::Executing { payload: payload.clone() });
             println!("🎯 Sending payload to target: {}", payload);
             let outcome = match self.executor.execute(&payload).await {
                 Ok(o) => o,
@@ -177,6 +195,7 @@ impl ExecutionEngine {
             };
 
             // ۵. ارزیابی پاسخ *واقعی هدف* (نه خروجی خام مدل)
+            Self::log_transition(&ExecutionState::Evaluating { response: response.clone() });
             println!(
                 "📡 Target responded [{}]: {}",
                 outcome.status_code,
@@ -215,6 +234,10 @@ impl ExecutionEngine {
 
             // اگر پاسخ هدف معیار موفقیت را داشت، پایان موفقیت‌آمیز
             if eval_result.is_valid {
+                Self::log_transition(&ExecutionState::Completed {
+                    final_response: recorded_response.clone(),
+                    attempts_count: current_attempt,
+                });
                 return Ok(recorded_response);
             }
 
@@ -259,6 +282,11 @@ impl ExecutionEngine {
         }
 
         if let Some(ref err_cat) = eval_result.error {
+            Self::log_transition(&ExecutionState::Reflecting {
+                response: response.clone(),
+                eval_result: eval_result.clone(),
+            });
+
             let err_details = eval_result
                 .error_details
                 .as_deref()
