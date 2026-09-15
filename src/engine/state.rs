@@ -14,8 +14,9 @@ pub enum ExecutionState {
     Generating,
     /// اجرای واقعی payload تولیدشده روی هدف
     Executing { payload: Value },
-    /// ارزیابی پاسخ (چه ساختار خروجی مدل، چه پاسخ واقعی هدف)
-    Evaluating { response: LlmResponse },
+    /// ارزیابی چیزی — چه ساختار خروجی خام مدل، چه پاسخ واقعی هدف.
+    /// `subject` مشخص می‌کند کدام مرحله است تا لاگ گمراه‌کننده نباشد.
+    Evaluating { subject: &'static str, preview: String },
     /// استخراج درس‌آموخته در صورت بروز خطا و آماده‌سازی retry
     Reflecting {
         response: LlmResponse,
@@ -39,9 +40,8 @@ impl fmt::Display for ExecutionState {
             ExecutionState::Preparing => write!(f, "Preparing (fetching memory, assembling prompt)"),
             ExecutionState::Generating => write!(f, "Generating (calling LLM provider)"),
             ExecutionState::Executing { payload } => write!(f, "Executing payload against target: {}", payload),
-            ExecutionState::Evaluating { response } => {
-                let preview: String = response.output.chars().take(80).collect();
-                write!(f, "Evaluating response: {}", preview)
+            ExecutionState::Evaluating { subject, preview } => {
+                write!(f, "Evaluating {}: {}", subject, preview)
             }
             ExecutionState::Reflecting { eval_result, .. } => write!(
                 f,

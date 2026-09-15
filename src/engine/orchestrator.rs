@@ -139,7 +139,10 @@ impl ExecutionEngine {
             };
 
             println!("📝 Model raw output:\n{}", response.output);
-            Self::log_transition(&ExecutionState::Evaluating { response: response.clone() });
+            Self::log_transition(&ExecutionState::Evaluating {
+                subject: "model output structure",
+                preview: response.output.chars().take(80).collect(),
+            });
 
             // ۳. تلاش برای پارس کردن خروجی مدل به‌عنوان payload معتبر برای Executor
             let cleaned = strip_code_fences(&response.output);
@@ -195,7 +198,10 @@ impl ExecutionEngine {
             };
 
             // ۵. ارزیابی پاسخ *واقعی هدف* (نه خروجی خام مدل)
-            Self::log_transition(&ExecutionState::Evaluating { response: response.clone() });
+            Self::log_transition(&ExecutionState::Evaluating {
+                subject: "real target response",
+                preview: outcome.body.chars().take(80).collect(),
+            });
             println!(
                 "📡 Target responded [{}]: {}",
                 outcome.status_code,
