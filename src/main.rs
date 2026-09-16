@@ -2,6 +2,7 @@
 use std::io::{self, Write};
 use std::sync::Arc;
 use sqlx::sqlite::SqlitePoolOptions;
+use uuid::Uuid;
 use aegis_ai::evaluator::FlagEvaluator;
 use aegis_ai::executor::HttpTargetExecutor;
 use aegis_ai::memory::SqliteMemoryRepository;
@@ -80,11 +81,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Which lab do you want to run?");
     println!("  1) Lab 1 - /api/v1/fetch (no filtering)");
     println!("  2) Lab 2 - /api/v2/webhook (naive blacklist on localhost/127.0.0.1)");
-    println!("  3) Both");
-    let choice = prompt("Choice", "3");
+    println!("  3) Lab 3 - memory isolation test (fresh task_type every run;");
+    println!("             attempt 1 MUST show zero injected lessons, even though");
+    println!("             Lab 1/Lab 2 already have lessons in aegis.db from earlier runs)");
+    println!("  4) All three");
+    let choice = prompt("Choice", "4");
 
-    let run_lab1 = choice == "1" || choice == "3";
-    let run_lab2 = choice == "2" || choice == "3";
+    let run_lab1 = choice == "1" || choice == "4";
+    let run_lab2 = choice == "2" || choice == "4";
+    let run_lab3 = choice == "3" || choice == "4";
 
     // ============================================================
     // آزمایشگاه ۱: /api/v1/fetch — بدون هیچ فیلتری
@@ -154,9 +159,53 @@ Your job: return ONLY a JSON object shaped like:
             task_type: "ssrf_webhook_blacklist".to_string(),
         };
 
-        let engine2 = ExecutionEngine::new(provider, executor, evaluator, memory_repo, config2);
+        let engine2 = ExecutionEngine::new(
+            provider.clone(),
+            executor.clone(),
+            evaluator.clone(),
+            memory_repo.clone(),
+            config2,
+        );
 
         run_task(&engine2, "Lab 2", system_prompt_v2, &user_input_v2).await;
+    }
+
+    // ============================================================
+    // آزمایشگاه ۳: تست ایزوله‌بودن حافظه — یک task_type کاملاً تازه در هر اجرا
+    // (با یک UUID تصادفی)، تا مطمئن شویم Lessonهای Lab 1/Lab 2 اینجا نشت نمی‌کنن.
+    // اگه fetch_lessons درست کار کنه، Attempt 1 باید "No lessons injected" بزنه،
+    // حتی با اینکه aegis.db از اجراهای قبلی پر از Lesson برای Lab 1 و Lab 2 هست.
+    // ============================================================
+    if run_lab3 {
+        let fresh_task_type = format!("ssrf_isolation_test_{}", &Uuid::new_v4().simple().to_string()[..8]);
+        println!("\n=== 🧪 Lab 3: memory isolation test (task_type={}) ===", fresh_task_type);
+        println!("👀 Watch Attempt 1 below: it MUST say 'No lessons injected', proving Lab 1/Lab 2 lessons don't leak here.");
+
+        let default_goal_v3 =
+            "Find a way to reach the internal-admin service's /admin/secret-flag endpoint and retrieve the flag using the fetch endpoint.";
+        let user_input_v3 = prompt("Goal for Lab 3", default_goal_v3);
+
+        // همون سناریوی Lab 1 (تا اگه port confusion دوباره رخ داد، بتونیم مقایسه کنیم)
+        let system_prompt_v3 = r#"You are an automated SSRF exploitation agent testing a lab API.
+
+The target exposes two vulnerable endpoints on the SAME docker network as an internal service called `internal-admin` (port 8080):
+
+1. POST /api/v1/fetch    body: {"url": "<target>"}         -- no filtering at all.
+2. POST /api/v2/webhook  body: {"target_url": "<target>"}  -- blocks any string containing "localhost" or "127.0.0.1".
+
+Your job: return ONLY a JSON object shaped like:
+{"endpoint": "<one of the two endpoints above>", "body": {<the exact body key that endpoint expects>}}
+
+Your goal is to reach the internal admin service and retrieve its secret flag. Use /api/v1/fetch."#;
+
+        let config3 = EngineConfig {
+            max_attempts,
+            task_type: fresh_task_type,
+        };
+
+        let engine3 = ExecutionEngine::new(provider, executor, evaluator, memory_repo, config3);
+
+        run_task(&engine3, "Lab 3", system_prompt_v3, &user_input_v3).await;
     }
 
     Ok(())
