@@ -5,12 +5,12 @@ edition = "2021"
 authors = ["redparrot https://github.com/r3dparr0t>"]
 
 [dependencies]
-tokio = { version = "1.38", features = ["full"] }
 async-trait = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-reqwest = { version = "0.12", features = ["json"] }
 regex = "1.10"
-sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite", "migrate"] }
-uuid = { version = "1.8", features = ["v4"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "migrate"] }
 thiserror = "1.0"
+tokio = { version = "1.38", features = ["full"] }
+uuid = { version = "1.8", features = ["v4"] }
