@@ -51,7 +51,7 @@ impl ExecutionEngine {
 
     /// اجرای اصلی حلقه Self-Correction:
     /// Generate (مدل payload می‌سازد) -> Execute (payload واقعاً به هدف زده می‌شود) -> Evaluate (پاسخ واقعی هدف بررسی می‌شود) -> Reflect
-    pub async fn execute(&self, system_prompt: &str, user_input: &str) -> Result<LlmResponse, EngineError> {
+    pub async fn execute(&self, system_prompt: &str, user_input: &str) -> Result<(String, LlmResponse), EngineError> {
         // ۱. ایجاد رکورد Execution جدید در دیتابیس
         let execution_id = self
             .memory_repo
@@ -244,7 +244,7 @@ impl ExecutionEngine {
                     final_response: recorded_response.clone(),
                     attempts_count: current_attempt,
                 });
-                return Ok(recorded_response);
+                return Ok((execution_id.clone(), recorded_response));
             }
 
             current_attempt += 1;

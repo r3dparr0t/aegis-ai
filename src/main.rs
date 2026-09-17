@@ -1,8 +1,10 @@
 // src/main.rs
+use std::fs;
 use std::io::{self, Write};
 use std::sync::Arc;
 use sqlx::sqlite::SqlitePoolOptions;
 use uuid::Uuid;
+use aegis_ai::domain::ExecutionReport;
 use aegis_ai::evaluator::FlagEvaluator;
 use aegis_ai::executor::HttpTargetExecutor;
 use aegis_ai::memory::SqliteMemoryRepository;
@@ -126,7 +128,7 @@ Your goal is to reach the internal admin service and retrieve its secret flag. U
             config1,
         );
 
-        run_task(&engine1, "Lab 1", system_prompt_v1, &user_input_v1).await;
+        run_task(&engine1, &memory_repo, "Lab 1", system_prompt_v1, &user_input_v1).await;
     }
 
     // ============================================================
@@ -167,7 +169,7 @@ Your job: return ONLY a JSON object shaped like:
             config2,
         );
 
-        run_task(&engine2, "Lab 2", system_prompt_v2, &user_input_v2).await;
+        run_task(&engine2, &memory_repo, "Lab 2", system_prompt_v2, &user_input_v2).await;
     }
 
     // ============================================================
@@ -203,25 +205,110 @@ Your goal is to reach the internal admin service and retrieve its secret flag. U
             task_type: fresh_task_type,
         };
 
-        let engine3 = ExecutionEngine::new(provider, executor, evaluator, memory_repo, config3);
+        let engine3 = ExecutionEngine::new(provider, executor, evaluator, memory_repo.clone(), config3);
 
-        run_task(&engine3, "Lab 3", system_prompt_v3, &user_input_v3).await;
+        run_task(&engine3, &memory_repo, "Lab 3", system_prompt_v3, &user_input_v3).await;
     }
 
     Ok(())
 }
 
-/// اجرای یک سناریو و چاپ نتیجه‌ی نهایی‌اش
-async fn run_task(engine: &ExecutionEngine, label: &str, system_prompt: &str, user_input: &str) {
+/// اجرای یک سناریو، چاپ نتیجه‌ی نهایی، و تولید گزارش ساختاریافته (JSON + Markdown)
+/// چه در صورت موفقیت، چه در صورت شکست پس از اتمام حداکثر تلاش‌ها.
+async fn run_task(
+    engine: &ExecutionEngine,
+    memory_repo: &SqliteMemoryRepository,
+    label: &str,
+    system_prompt: &str,
+    user_input: &str,
+) {
     println!("⚡ [{}] Executing SSRF self-correction loop...", label);
     match engine.execute(system_prompt, user_input).await {
-        Ok(res) => {
+        Ok((execution_id, res)) => {
             println!("✅ [{}] Success! Target responded with the success marker.", label);
             println!("Target response:\n{}", res.output);
             println!("Latency: {} ms", res.latency_ms);
+            write_report(memory_repo, &execution_id, label).await;
+        }
+        Err(aegis_ai::domain::EngineError::MaxAttemptsExceeded { execution_id, attempts }) => {
+            eprintln!("❌ [{}] Execution Failed: exceeded {} attempts", label, attempts);
+            write_report(memory_repo, &execution_id, label).await;
         }
         Err(err) => {
+            // این شاخه‌ها (خطای LLM/DB) قبل یا بدون تکمیل یک execution رخ می‌دن،
+            // پس چیزی برای گزارش‌گیری از جدول attempts وجود نداره.
             eprintln!("❌ [{}] Execution Failed: {}", label, err);
         }
     }
+}
+
+/// بازسازی گزارش از SQLite و نوشتن آن به‌صورت JSON و Markdown در پوشه‌ی reports/
+async fn write_report(memory_repo: &SqliteMemoryRepository, execution_id: &str, label: &str) {
+    let report = match memory_repo.get_execution_report(execution_id).await {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("⚠️  Could not build report for {}: {}", label, e);
+            return;
+        }
+    };
+
+    if let Err(e) = fs::create_dir_all("reports") {
+        eprintln!("⚠️  Could not create reports/ directory: {}", e);
+        return;
+    }
+
+    let base_path = format!("reports/{}_{}", label.to_lowercase().replace(' ', "_"), execution_id);
+
+    match serde_json::to_string_pretty(&report) {
+        Ok(json) => {
+            if let Err(e) = fs::write(format!("{}.json", base_path), json) {
+                eprintln!("⚠️  Could not write JSON report: {}", e);
+            }
+        }
+        Err(e) => eprintln!("⚠️  Could not serialize report to JSON: {}", e),
+    }
+
+    let markdown = render_markdown_report(&report, label);
+    if let Err(e) = fs::write(format!("{}.md", base_path), markdown) {
+        eprintln!("⚠️  Could not write Markdown report: {}", e);
+    }
+
+    println!("📄 Report saved: {}.json / {}.md", base_path, base_path);
+}
+
+/// تبدیل ExecutionReport به یک سند Markdown خوانا
+fn render_markdown_report(report: &ExecutionReport, label: &str) -> String {
+    let mut md = String::new();
+
+    md.push_str(&format!("# Aegis-AI Execution Report — {}\n\n", label));
+    md.push_str(&format!("- **Execution ID:** {}\n", report.execution_id));
+    md.push_str(&format!("- **Task type:** {}\n", report.task_type));
+    md.push_str(&format!("- **Goal:** {}\n", report.goal));
+    md.push_str(&format!("- **Created at:** {}\n", report.created_at));
+    md.push_str(&format!("- **Attempts:** {}\n", report.attempts.len()));
+    md.push_str(&format!(
+        "- **Result:** {}\n\n",
+        if report.success { "✅ SUCCESS" } else { "❌ FAILED" }
+    ));
+
+    md.push_str("## Attempts\n\n");
+
+    for attempt in &report.attempts {
+        let verdict = if attempt.is_valid { "✅ PASSED" } else { "❌ FAILED" };
+        md.push_str(&format!("### Attempt {} — {}\n\n", attempt.attempt_number, verdict));
+
+        if let Some(ref cat) = attempt.error_category {
+            md.push_str(&format!("- **Error category:** {}\n", cat));
+        }
+        if let Some(ref details) = attempt.error_details {
+            md.push_str(&format!("- **Error details:** {}\n", details));
+        }
+        md.push_str(&format!("- **Latency:** {} ms\n\n", attempt.latency_ms));
+
+        md.push_str("**Output:**\n\n```\n");
+        md.push_str(&attempt.output);
+        md.push_str("\n```\n\n");
+    }
+
+    md
 }

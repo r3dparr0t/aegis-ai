@@ -3,8 +3,8 @@ use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
 
 use crate::domain::{
-    EvaluationError, EvaluationResult, Lesson, LessonCandidate, LessonUsage,
-    LlmRequest, LlmResponse, MemoryQuery,
+    AttemptReport, EvaluationError, EvaluationResult, ExecutionReport, Lesson, LessonCandidate,
+    LessonUsage, LlmRequest, LlmResponse, MemoryQuery,
 };
 
 #[derive(Clone)]
@@ -205,5 +205,59 @@ impl SqliteMemoryRepository {
         .await?;
 
         Ok(())
+    }
+
+    /// بازسازی کامل یک گزارش اجرا (Execution Report) از روی جدول‌های executions/attempts/evaluations.
+    /// برای گزارش‌دهی نهایی به کاربر (خروجی JSON/Markdown)، نه برای مسیر اصلی self-correction.
+    pub async fn get_execution_report(&self, execution_id: &str) -> Result<ExecutionReport, sqlx::Error> {
+        let exec_row = sqlx::query("SELECT task_type, input_prompt, created_at FROM executions WHERE id = ?")
+            .bind(execution_id)
+            .fetch_one(&self.pool)
+            .await?;
+
+        let task_type: String = exec_row.get("task_type");
+        let goal: String = exec_row.get("input_prompt");
+        let created_at: String = exec_row.get("created_at");
+
+        let attempt_rows = sqlx::query(
+            r#"
+            SELECT a.attempt_number, a.output, a.latency_ms, e.is_valid, e.error_category, e.error_details
+            FROM attempts a
+            JOIN evaluations e ON e.attempt_id = a.id
+            WHERE a.execution_id = ?
+            ORDER BY a.attempt_number ASC
+            "#,
+        )
+        .bind(execution_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut attempts = Vec::with_capacity(attempt_rows.len());
+        let mut success = false;
+
+        for row in attempt_rows {
+            let is_valid: bool = row.get("is_valid");
+            if is_valid {
+                success = true;
+            }
+
+            attempts.push(AttemptReport {
+                attempt_number: row.get("attempt_number"),
+                output: row.get("output"),
+                is_valid,
+                error_category: row.get("error_category"),
+                error_details: row.get("error_details"),
+                latency_ms: row.get("latency_ms"),
+            });
+        }
+
+        Ok(ExecutionReport {
+            execution_id: execution_id.to_string(),
+            task_type,
+            goal,
+            created_at,
+            attempts,
+            success,
+        })
     }
 }
