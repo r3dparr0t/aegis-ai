@@ -27,11 +27,18 @@ struct ProvidersFile {
 pub fn load_providers_file() -> Vec<ProviderEntry> {
     let content = match fs::read_to_string("providers.toml") {
         Ok(c) => c,
-        Err(_) => return Vec::new(),
+        Err(e) => {
+            eprintln!("⚠️  Could not read providers.toml: {}", e);
+            return Vec::new();
+        }
     };
-    toml::from_str::<ProvidersFile>(&content)
-        .map(|f| f.provider)
-        .unwrap_or_default()
+    match toml::from_str::<ProvidersFile>(&content) {
+        Ok(f) => f.provider,
+        Err(e) => {
+            eprintln!("⚠️  providers.toml parse error: {}", e);
+            Vec::new()
+        }
+    }
 }
 
 pub fn mask_key(key: &str) -> String {

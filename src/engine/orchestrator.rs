@@ -1,13 +1,13 @@
 // src/engine/orchestrator.rs
 use std::sync::Arc;
 use uuid::Uuid;
-use crate::domain::{
-    EngineError, EvaluationError, EvaluationResult, Evaluator, LessonUsage, LlmProvider, LlmRequest,
-    LlmResponse, MemoryQuery, TargetExecutor,
+use crate::{
+	domain::{EngineError, EvaluationError, EvaluationResult, Evaluator, LessonUsage,
+		LlmProvider, LlmRequest, LlmResponse, MemoryQuery, TargetExecutor,},
+	engine::state::ExecutionState,
+	memory::SqliteMemoryRepository, 
+	util::{strip_code_fences, extract_json_object},
 };
-use crate::engine::state::ExecutionState;
-use crate::memory::SqliteMemoryRepository;
-use crate::util::strip_code_fences;
 
 pub struct EngineConfig {
     pub max_attempts: u32,
@@ -145,16 +145,19 @@ impl ExecutionEngine {
             });
 
             // ۳. تلاش برای پارس کردن خروجی مدل به‌عنوان payload معتبر برای Executor
-            let cleaned = strip_code_fences(&response.output);
-            let payload: serde_json::Value = match serde_json::from_str(&cleaned) {
-                Ok(v) => v,
-                Err(err) => {
-                    println!("❌ Not valid JSON: {}", err);
-                    let eval_result = EvaluationResult {
-                        is_valid: false,
-                        error: Some(EvaluationError::InvalidJson),
-                        error_details: Some(format!("Model output was not valid JSON: {}", err)),
-                    };
+            let cleaned = extract_json_object(&response.output)
+				.unwrap_or_else(|| strip_code_fences(&response.output));
+			let payload: serde_json::Value = match serde_json::from_str(&cleaned) {
+						Ok(v) => v,
+               Err(err) => {
+					println!("❌ Not valid JSON: {}\nExtracted (first 200): {}",
+							 err,
+							 cleaned.chars().take(200).collect::<String>());
+					let eval_result = EvaluationResult {
+						is_valid: false,
+						error: Some(EvaluationError::InvalidJson),
+						error_details: Some(format!("Model output was not valid JSON: {}", err)),
+					};
                     self.record_attempt_and_learn(
                         &execution_id,
                         current_attempt,

@@ -1,0 +1,45 @@
+# لیست providerهای شناخته‌شده.
+# هر provider: env_var (اسم متغیر تو .env), name (اسم نمایشی),
+# base_url, default_model, kind ("openai_compatible" یا "typesafe").
+#
+# برای اضافه‌کردن provider جدید: فقط این فایل رو ویرایش کن، نیازی به recompile نیست.
+
+[[provider]]
+env_var       = "OPENAI_API_KEY"
+name          = "OpenAI"
+base_url      = "https://api.openai.com/v1"
+default_model = "gpt-4o-mini"
+kind          = "openai_compatible"
+
+[[provider]]
+env_var       = "DEEPSEEK_API_KEY"
+name          = "DeepSeek"
+base_url      = "https://api.deepseek.com/v1"
+default_model = "deepseek-chat"
+kind          = "openai_compatible"
+
+[[provider]]
+env_var       = "GROQ_API_KEY"
+name          = "Groq"
+base_url      = "https://api.groq.com/openai/v1"
+default_model = "llama-3.3-70b-versatile"
+kind          = "openai_compatible"
+
+[[provider]]
+env_var       = "MISTRAL_API_KEY"
+name          = "Mistral"
+base_url      = "https://api.mistral.ai/v1"
+default_model = "mistral-large-latest"
+kind          = "openai_compatible"
+
+[[provider]]
+env_var       = "TYPESAFE_API_KEY"
+name          = "TypeSafe"
+base_url      = "https://api.typesafe.ai/v1"
+default_model = "jev-latest"
+kind          = "typesafe"
+
+# الگو برای provider ناشناخته:
+# اگه کلیدی تو .env باشه که تو این فایل نباشه،
+# برنامه با اسم خود متغیر به‌عنوان name و kind="openai_compatible" نشونش می‌ده.
+# می‌تونی هر وقت خواستی این‌جا اضافه‌ش کنی.
