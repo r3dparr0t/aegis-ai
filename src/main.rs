@@ -1,56 +1,25 @@
 // src/main.rs
-use std::fs;
-use std::io::{self, Write};
-use std::sync::Arc;
+
+use std::{fs, sync::Arc};
 use sqlx::sqlite::SqlitePoolOptions;
 use uuid::Uuid;
-use aegis_ai::domain::{ExecutionReport, LlmProvider};
-use aegis_ai::evaluator::FlagEvaluator;
-use aegis_ai::executor::HttpTargetExecutor;
-use aegis_ai::memory::SqliteMemoryRepository;
-use aegis_ai::provider::{OllamaProvider, OpenAiCompatibleProvider};
-use aegis_ai::engine::{EngineConfig, ExecutionEngine};
 
-/// خواندن یک خط از ورودی کاربر، با یک پیام راهنما و مقدار پیش‌فرض در صورت خالی بودن
-fn prompt(message: &str, default: &str) -> String {
-    if default.is_empty() {
-        print!("{} ", message);
-    } else {
-        print!("{} [{}]: ", message, default);
-    }
-    io::stdout().flush().ok();
-
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).ok();
-    let trimmed = input.trim().to_string();
-
-    if trimmed.is_empty() {
-        default.to_string()
-    } else {
-        trimmed
-    }
-}
-
-/// مثل prompt، ولی مقدار خیلی کوتاه رو رد می‌کنه و دوباره می‌پرسه.
-/// یه success_marker خیلی کوتاه (مثل یک کاراکتر تنها) می‌تونه به‌طور تصادفی تو هر پاسخی
-/// match بشه (false positive)، پس حداقل طول رو اجباری می‌کنیم.
-fn prompt_min_len(message: &str, default: &str, min_len: usize) -> String {
-    loop {
-        let value = prompt(message, default);
-        if value.chars().count() >= min_len {
-            return value;
-        }
-        println!(
-            "⚠️  Too short ({} char(s)). A marker that short can match unrelated text by accident. Please enter at least {} characters.",
-            value.chars().count(),
-            min_len
-        );
-    }
-}
+use aegis_ai::{
+    domain::{ExecutionReport, LlmProvider},
+    evaluator::FlagEvaluator,
+    executor::HttpTargetExecutor,
+    input::{prompt, prompt_min_len},   
+    memory::SqliteMemoryRepository,
+    provider::OllamaProvider,
+    selection::{choose_ollama_model, select_provider},
+    engine::{EngineConfig, ExecutionEngine},
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Aegis-AI Engine (SSRF Fuzzing Mode)\n");
+    // .env رو قبل از هر چیزی لود کن
+    let _ = dotenvy::dotenv();
 
     // ۱. مقداردهی پایگاه داده SQLite دائمی (نه در حافظه) تا Lessonها بین اجراها باقی بمانند
     let pool = SqlitePoolOptions::new()
@@ -62,31 +31,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let memory_repo = SqliteMemoryRepository::new(pool);
 
-    // ۲. تعریف Provider (مدل)، Executor (هدف واقعی) و Evaluator (پاسخ واقعی هدف)
-    // این سه‌تا بین هر دو سناریوی زیر مشترکن؛ فقط task_type و system prompt فرق می‌کنه.
-    println!("Which LLM provider?");
-    println!("  1) Ollama (local)");
-    println!("  2) API-key based provider (OpenAI-compatible: OpenAI, DeepSeek, Groq, Jev, ...)");
-    let provider_choice = prompt("Choice", "1");
 
-    let provider: Arc<dyn LlmProvider> = if provider_choice == "2" {
-        let base_url = prompt("API base URL", "https://api.openai.com/v1");
-        let model_name = prompt("Model name", "gpt-4o-mini");
-        let env_var = prompt("Environment variable holding the API key", "JEV_API_KEY");
-
-        match OpenAiCompatibleProvider::from_env(base_url, &env_var, model_name) {
-            Ok(p) => Arc::new(p),
-            Err(e) => {
-                eprintln!("❌ {}", e);
-                eprintln!("Set it first, e.g.: export {}=your_key_here", env_var);
-                return Ok(());
-            }
-        }
-    } else {
-        let ollama_url = prompt("Ollama base URL", "http://localhost:11434");
-        let model_name = prompt("Ollama model", "qwen2.5:3b");
-        Arc::new(OllamaProvider::new(ollama_url, model_name))
+     // ۲. انتخاب provider — همه‌ی منطق تو selection.rs
+    let provider: Arc<dyn LlmProvider> = match select_provider().await {
+        Some(p) => p,
+        None => return Ok(()),
     };
+
 
     let target_base_url = prompt("Vulnerable target base URL", "http://localhost:5000");
     let success_marker = prompt_min_len("Success marker to look for in target responses", "FLAG{", 4);
@@ -99,8 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let evaluator = Arc::new(FlagEvaluator::new(success_marker));
 
-    println!();
-    println!("Which lab do you want to run?");
+    println!("\nWhich lab do you want to run?");
     println!("  1) Lab 1 - /api/v1/fetch (no filtering)");
     println!("  2) Lab 2 - /api/v2/webhook (naive blacklist on localhost/127.0.0.1)");
     println!("  3) Lab 3 - memory isolation test (fresh task_type every run;");
@@ -249,6 +199,22 @@ Your goal is to reach the internal admin service and retrieve its secret flag. U
     if run_lab4 {
         println!("\n=== 🧪 Lab 4: /api/v3/strict (blocks hostname + dotted-quad IP notation) ===");
 
+        // این چالش نیاز به یک محاسبه‌ی چندمرحله‌ای (تبدیل مبنا) داره که مدل‌های کوچیک
+        // (مثل qwen2.5:3b) معمولاً درش شکست می‌خورن (حدس می‌زنن، محاسبه نمی‌کنن).
+        // این‌جا اجازه می‌دیم یک مدل جداگانه (بزرگ‌تر) فقط برای همین Lab انتخاب بشه.
+        let use_bigger_model = prompt(
+            "Use a different (bigger) Ollama model just for Lab 4's IP-encoding arithmetic? [y/N]",
+            "n",
+        );
+
+        let engine4_provider: Arc<dyn LlmProvider> = if use_bigger_model.eq_ignore_ascii_case("y") {
+            let lab4_ollama_url = prompt("Ollama base URL for Lab 4", "http://localhost:11434");
+            let lab4_model = choose_ollama_model(&lab4_ollama_url, "qwen2.5:7b").await;
+            Arc::new(OllamaProvider::new(lab4_ollama_url, lab4_model))
+        } else {
+            provider.clone()
+        };
+
         let default_goal_v4 =
             "Reach the internal-admin service at 172.28.0.10:8080's /admin/secret-flag endpoint via the strict endpoint, bypassing its filter with an IP-encoding technique, and retrieve the flag.";
         let user_input_v4 = prompt("Goal for Lab 4", default_goal_v4);
@@ -281,7 +247,7 @@ Your job: return ONLY a JSON object shaped like:
             task_type: "ssrf_ip_encoding_bypass".to_string(),
         };
 
-        let engine4 = ExecutionEngine::new(provider, executor, evaluator, memory_repo.clone(), config4);
+        let engine4 = ExecutionEngine::new(engine4_provider, executor, evaluator, memory_repo.clone(), config4);
 
         run_task(&engine4, &memory_repo, "Lab 4", system_prompt_v4, &user_input_v4).await;
     }
