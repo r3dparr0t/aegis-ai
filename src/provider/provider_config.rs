@@ -5,6 +5,7 @@ use std::{collections::HashSet, fs};
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderKind {
+    #[serde(rename = "openai_compatible")]   // ← این خط
     OpenAiCompatible,
     Typesafe,
 }
