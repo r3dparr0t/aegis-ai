@@ -334,7 +334,16 @@ impl ExecutionEngine {
                 );
             }
         }
-
+        if err_details.contains("Egress blocked") {
+            return "AVOID ERROR: Your encoded IP was WRONG — the request went to a different address. \
+                    You must ACTUALLY COMPUTE the value, not guess. Do this step by step:\n\
+                    1. Split the target IP into four octets: a.b.c.d\n\
+                    2. Compute: a*16777216 + b*65536 + c*256 + d\n\
+                    3. Write out each multiplication explicitly before adding.\n\
+                    4. ALWAYS keep the scheme (http://), the :PORT, and the /path.\n\
+                    Do NOT guess a round number. Do the arithmetic."
+                .to_string();
+        }
         // الگوی رایج: نبود scheme در URL (requests نمی‌تونه آداپتور پیدا کنه)
         if err_details.contains("No connection adapters were found") {
             return "AVOID ERROR: Your URL was missing a valid scheme (http:// or https://). \
