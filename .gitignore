@@ -3,3 +3,8 @@
 !.env.example
 /reports
 /target
+# SQLite runtime state
+aegis.db
+aegis.db-shm
+aegis.db-wal
+*.db

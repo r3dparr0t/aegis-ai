@@ -1,4 +1,4 @@
-// src/util.rs
+// src/executor/json.rs
 
 /// از یک متن آزاد (که ممکنه reasoning، ``` fence، یا حتی </think> داشته باشه)
 /// اولین JSON object معتبر رو بیرون می‌کشه.

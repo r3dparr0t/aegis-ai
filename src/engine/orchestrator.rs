@@ -6,7 +6,8 @@ use crate::{
 		LlmProvider, LlmRequest, LlmResponse, MemoryQuery, TargetExecutor,},
 	engine::state::ExecutionState,
 	memory::SqliteMemoryRepository, 
-	util::{strip_code_fences, extract_json_object},
+    executor::{json::{extract_json_object, strip_code_fences},
+        payload::apply_ip_encoding},                    
 };
 
 pub struct EngineConfig {
@@ -172,11 +173,17 @@ impl ExecutionEngine {
                     continue;
                 }
             };
-
-            // ۴. اجرای واقعی payload روی هدف (Execute)
+            let mut payload = payload;
+            if let Some(fmt) = apply_ip_encoding(&mut payload) {
+                println!("🔧 IP encoding applied: {:?}", fmt);
+                println!("   post-transform payload: {}", payload);
+            }
+            
             Self::log_transition(&ExecutionState::Executing { payload: payload.clone() });
             println!("🎯 Sending payload to target: {}", payload);
-            let outcome = match self.executor.execute(&payload).await {
+            
+            // ۴. اجرای واقعی payload روی هدف (Execute)
+           let outcome = match self.executor.execute(&payload).await {
                 Ok(o) => o,
                 Err(err) => {
                     println!("❌ Executor error: {}", err);
@@ -335,14 +342,25 @@ impl ExecutionEngine {
             }
         }
         if err_details.contains("Egress blocked") {
-            return "AVOID ERROR: Your encoded IP was WRONG — the request went to a different address. \
-                    You must ACTUALLY COMPUTE the value, not guess. Do this step by step:\n\
-                    1. Split the target IP into four octets: a.b.c.d\n\
-                    2. Compute: a*16777216 + b*65536 + c*256 + d\n\
-                    3. Write out each multiplication explicitly before adding.\n\
-                    4. ALWAYS keep the scheme (http://), the :PORT, and the /path.\n\
-                    Do NOT guess a round number. Do the arithmetic."
-                .to_string();
+            // فقط برای تسکی که واقعاً IP-encoding می‌خواد، راهنمای محاسبه بده.
+            // برای بقیه تسک‌ها، این خطا یعنی مدل یه IP خالی‌از‌خود ساخته —
+            // باید برگرده به همون hostname دقیقی که تو prompt اومده.
+            if self.config.task_type == "ssrf_ip_encoding_bypass" {
+                return "AVOID ERROR: Your encoded IP was WRONG — the request went to a different address. \
+                        You must ACTUALLY COMPUTE the value, not guess. Do this step by step:\n\
+                        1. Split the target IP into four octets: a.b.c.d\n\
+                        2. Compute: a*16777216 + b*65536 + c*256 + d\n\
+                        3. Write out each multiplication explicitly before adding.\n\
+                        4. ALWAYS keep the scheme (http://), the :PORT, and the /path.\n\
+                        Do NOT guess a round number. Do the arithmetic."
+                    .to_string();
+            } else {
+                return "AVOID ERROR: You sent the request to a host the lab did not recognize. \
+                        You MUST use the EXACT hostname given in the system prompt — do NOT invent \
+                        an IP address and do NOT try to encode one. Re-read the prompt and use the \
+                        literal host name it specifies (e.g. 'internal-admin:8080')."
+                    .to_string();
+            }
         }
         // الگوی رایج: نبود scheme در URL (requests نمی‌تونه آداپتور پیدا کنه)
         if err_details.contains("No connection adapters were found") {

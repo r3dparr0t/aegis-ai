@@ -6,23 +6,33 @@ use crate::{input::prompt, provider::{
     OllamaProvider, OpenAiCompatibleProvider, TypesafeProvider,
     provider_config::{discover_available, AvailableProvider, ProviderKind},}
 };
+pub struct SelectedProvider {
+    pub provider: Arc<dyn LlmProvider>,
+    pub is_local: bool,   // true فقط برای Ollama
+}
+
+
 /// انتخاب provider: نمایش منو، گرفتن انتخاب کاربر، و ساخت Arc<dyn LlmProvider>.
 /// همه‌ی جزئیات (لیست از providers.toml، مدل‌ها از API/Ollama، ورودی دستی) این‌جاست.
-pub async fn select_provider() -> Option<Arc<dyn LlmProvider>> {
+pub async fn select_provider() -> Option<SelectedProvider> {
     let available = discover_available();
 
     print_menu(&available);
     let choice_idx = prompt("Choice", "0").parse::<usize>().unwrap_or(0);
 
     if choice_idx == 0 {
-        return Some(build_ollama().await);
+        return Some(SelectedProvider {
+            provider: build_ollama().await,
+            is_local: true,
+        });
     }
     if choice_idx >= 1 && choice_idx <= available.len() {
-        return build_from_discovered(&available[choice_idx - 1]).await;
+        return build_from_discovered(&available[choice_idx - 1])
+            .await
+            .map(|provider| SelectedProvider { provider, is_local: false });
     }
-    build_manual()
+    build_manual().map(|provider| SelectedProvider { provider, is_local: false })
 }
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

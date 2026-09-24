@@ -1,5 +1,5 @@
 // src/lib.rs
-pub mod util;
+
 pub mod domain;
 pub mod evaluator;
 pub mod executor;
