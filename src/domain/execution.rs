@@ -33,7 +33,15 @@ pub struct EvaluationResult {
     pub error_details: Option<String>,
 }
 
+/// ورودی استاندارد ارزیابی — نه فقط body، بلکه status و latency هم
+/// (لازم برای Evaluatorهایی مثل TimeDelayEvaluator که body خالیه و فقط latency مهمه)
+pub struct EvaluationInput<'a> {
+    pub body: &'a str,
+    pub status_code: u16,
+    pub latency_ms: u64,
+}
+
 /// اینترفیس ارزیاب مستقل
 pub trait Evaluator: Send + Sync {
-    fn evaluate(&self, output: &str) -> EvaluationResult;
+    fn evaluate(&self, input: EvaluationInput<'_>) -> EvaluationResult;
 }

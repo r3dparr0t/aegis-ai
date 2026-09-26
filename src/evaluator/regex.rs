@@ -1,6 +1,6 @@
 // src/evaluator/regex.rs
 use regex::Regex;
-use crate::domain::{EvaluationError, EvaluationResult, Evaluator};
+use crate::domain::{EvaluationError, EvaluationInput, EvaluationResult, Evaluator};
 
 pub struct RegexEvaluator {
     pattern: Regex,
@@ -18,8 +18,8 @@ impl RegexEvaluator {
 }
 
 impl Evaluator for RegexEvaluator {
-    fn evaluate(&self, output: &str) -> EvaluationResult {
-        if self.pattern.is_match(output) {
+    fn evaluate(&self, input: EvaluationInput<'_>) -> EvaluationResult {
+        if self.pattern.is_match(input.body) {
             EvaluationResult {
                 is_valid: true,
                 error: None,
@@ -31,7 +31,7 @@ impl Evaluator for RegexEvaluator {
                 error: Some(EvaluationError::InvalidFormat),
                 error_details: Some(format!(
                     "Output did not match pattern '{}': {}",
-                    self.expected_description, output
+                    self.expected_description, input.body
                 )),
             }
         }

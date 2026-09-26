@@ -1,5 +1,5 @@
 // src/evaluator/flag.rs
-use crate::domain::{EvaluationError, EvaluationResult, Evaluator};
+use crate::domain::{EvaluationError, EvaluationInput, EvaluationResult, Evaluator};
 
 /// ارزیابی موفقیت یک payload بر اساس *پاسخ واقعی هدف* (نه خروجی خام مدل).
 /// برای سناریوهایی مثل SSRF که موفقیت یعنی رسیدن به یک منبع داخلی و دیدن یک نشانه‌ی مشخص.
@@ -16,8 +16,8 @@ impl FlagEvaluator {
 }
 
 impl Evaluator for FlagEvaluator {
-    fn evaluate(&self, target_response_body: &str) -> EvaluationResult {
-        if target_response_body.contains(&self.success_marker) {
+    fn evaluate(&self, input: EvaluationInput<'_>) -> EvaluationResult {
+        if input.body.contains(&self.success_marker) {
             EvaluationResult {
                 is_valid: true,
                 error: None,
@@ -32,7 +32,7 @@ impl Evaluator for FlagEvaluator {
                 error_details: Some(format!(
                     "Expected to find '{}' in target response, got: {}",
                     self.success_marker,
-                    target_response_body.chars().take(300).collect::<String>()
+                    input.body.chars().take(300).collect::<String>()
                 )),
             }
         }

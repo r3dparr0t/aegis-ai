@@ -8,3 +8,4 @@ aegis.db
 aegis.db-shm
 aegis.db-wal
 *.db
+# labs/ نباید ignore شه، اینا config هستن نه runtime

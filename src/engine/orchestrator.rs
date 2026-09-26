@@ -2,14 +2,13 @@
 use std::sync::Arc;
 use uuid::Uuid;
 use crate::{
-	domain::{EngineError, EvaluationError, EvaluationResult, Evaluator, LessonUsage,
+	domain::{EngineError, EvaluationError, EvaluationInput, EvaluationResult, Evaluator, LessonUsage,
 		LlmProvider, LlmRequest, LlmResponse, MemoryQuery, TargetExecutor,},
 	engine::state::ExecutionState,
 	memory::SqliteMemoryRepository, 
     executor::{json::{extract_json_object, strip_code_fences},
         payload::apply_ip_encoding},                    
 };
-
 pub struct EngineConfig {
     pub max_attempts: u32,
     pub task_type: String,
@@ -217,7 +216,13 @@ impl ExecutionEngine {
                 outcome.status_code,
                 outcome.body.chars().take(300).collect::<String>()
             );
-            let eval_result = self.evaluator.evaluate(&outcome.body);
+            // خط ~۲۲۰ (فراخوانی evaluate)
+            let eval_result = self.evaluator.evaluate(EvaluationInput {
+                body: &outcome.body,
+                status_code: outcome.status_code,
+                latency_ms: outcome.latency_ms,
+            });
+            
             if eval_result.is_valid {
                 println!("✅ Evaluator: PASSED");
             } else {
