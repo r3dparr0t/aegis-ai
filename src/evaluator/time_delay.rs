@@ -26,10 +26,11 @@ impl Evaluator for TimeDelayEvaluator {
             EvaluationResult {
                 is_valid: false,
                 error: Some(EvaluationError::Custom("time_delay_insufficient".to_string())),
-                error_details: Some(format!(
-                    "Response latency {}ms was below threshold {}ms — \
-                     the target either did not perform the SSRF, or reached a fast endpoint.",
-                    input.latency_ms, self.threshold_ms
+                                error_details: Some(format!(
+                    "Response latency {}ms was below threshold {}ms (HTTP {}) — \
+                     the target either did not perform the SSRF, reached a fast endpoint, \
+                     or the endpoint itself returned an error status.",
+                    input.latency_ms, self.threshold_ms, input.status_code
                 )),
             }
         }

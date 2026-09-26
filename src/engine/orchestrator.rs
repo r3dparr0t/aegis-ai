@@ -12,6 +12,9 @@ use crate::{
 pub struct EngineConfig {
     pub max_attempts: u32,
     pub task_type: String,
+    /// اگه Some باشه، انتظار می‌ره فیلد `body` تو payload مدل این کلید رو داشته باشه.
+    /// برای validation زودهنگام قبل از زدن به هدف استفاده می‌شه.
+    pub expected_body_key: Option<String>,
 }
 
 /// یک Lesson که در پرامپت یک attempt خاص تزریق شده؛ id برای ثبت بعدی در lesson_usage نگه داشته می‌شود
@@ -172,6 +175,42 @@ impl ExecutionEngine {
                     continue;
                 }
             };
+
+            // ۳.۵. اگه برای این Lab یه body_key انتظار می‌ره، چک کن payload واقعاً همون کلید رو داره.
+            // این یه خطای زودهنگامه با پیام واضح، جای اینکه executor بگه "missing 'body' field".
+            if let Some(expected_key) = &self.config.expected_body_key {
+                if let Some(body) = payload.get("body") {
+                    if let Some(obj) = body.as_object() {
+                        if !obj.contains_key(expected_key) {
+                            let actual_keys: Vec<&String> = obj.keys().collect();
+                            println!(
+                                "❌ Payload body is missing expected key '{}'. Got keys: {:?}",
+                                expected_key, actual_keys
+                            );
+                            let eval_result = EvaluationResult {
+                                is_valid: false,
+                                error: Some(EvaluationError::Custom("invalid_payload".to_string())),
+                                error_details: Some(format!(
+                                    "Payload body is missing expected key '{}'. Got keys: {:?}",
+                                    expected_key, actual_keys
+                                )),
+                            };
+                            self.record_attempt_and_learn(
+                                &execution_id,
+                                current_attempt,
+                                &request,
+                                &response,
+                                &eval_result,
+                                &lesson_ids_used_this_attempt,
+                                &mut accumulated_lessons,
+                            )
+                            .await?;
+                            current_attempt += 1;
+                            continue;
+                        }
+                    }
+                }
+            }
             let mut payload = payload;
             if let Some(fmt) = apply_ip_encoding(&mut payload) {
                 println!("🔧 IP encoding applied: {:?}", fmt);
