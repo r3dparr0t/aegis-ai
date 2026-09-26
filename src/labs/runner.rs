@@ -60,7 +60,10 @@ pub async fn run_lab(ctx: &LabContext, spec: &LabSpec) {
     let config = EngineConfig {
         max_attempts: ctx.max_attempts,
         task_type,
-        expected_body_key: Some(spec.target.body_key.clone()),
+        // expected_body_key: Some(spec.target.body_key.clone()),
+		expected_body_key: if spec.target.body_key.is_empty() { None } else { 
+			Some(spec.target.body_key.clone())
+		},
     };
 
     let engine = ExecutionEngine::new(

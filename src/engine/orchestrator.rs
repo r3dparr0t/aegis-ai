@@ -227,7 +227,7 @@ impl ExecutionEngine {
                     println!("❌ Executor error: {}", err);
                     let eval_result = EvaluationResult {
                         is_valid: false,
-                        error: Some(EvaluationError::Custom(err.to_string())),
+                        error: Some(EvaluationError::MissingField),
                         error_details: Some(err.to_string()),
                     };
                     self.record_attempt_and_learn(
