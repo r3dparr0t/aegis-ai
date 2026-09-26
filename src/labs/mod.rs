@@ -24,8 +24,6 @@ pub struct LabContext {
     pub max_attempts: u32,
 }
 
-// run_task / write_report / render_markdown_report — بدون تغییر
-// (همون‌هایی که تو main.rs فعلی داری، فقط منتقلشون کن به این‌جا)
 pub async fn run_task(
     engine: &ExecutionEngine,
     memory_repo: &SqliteMemoryRepository,
@@ -51,6 +49,40 @@ pub async fn run_task(
     }
 }
 
+/// یه برچسب انسانی (که ممکنه فاصله، اسلش، خط تیره، پرانتز و ... داشته باشه) رو
+/// به یه slug امن برای نام فایل تبدیل می‌کنه. حداکثر ۶۰ کاراکتر.
+fn slugify(label: &str) -> String {
+    let slug: String = label
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+
+    // پاک‌سازی underscoreهای پشت‌سرهم و لبه‌ها
+    let mut out = String::new();
+    let mut last_was_underscore = false;
+    for c in slug.chars() {
+        if c == '_' {
+            if !last_was_underscore && !out.is_empty() {
+                out.push('_');
+            }
+            last_was_underscore = true;
+        } else {
+            out.push(c);
+            last_was_underscore = false;
+        }
+    }
+    while out.ends_with('_') {
+        out.pop();
+    }
+    out.chars().take(60).collect()
+}
+
 async fn write_report(memory_repo: &SqliteMemoryRepository, execution_id: &str, label: &str) {
     let report = match memory_repo.get_execution_report(execution_id).await {
         Ok(r) => r,
@@ -63,13 +95,21 @@ async fn write_report(memory_repo: &SqliteMemoryRepository, execution_id: &str, 
         eprintln!("⚠️  Could not create reports/ directory: {}", e);
         return;
     }
-    let base_path = format!("reports/{}_{}", label.to_lowercase().replace(' ', "_"), execution_id);
+
+    let base_path = format!("reports/{}_{}", slugify(label), execution_id);
+
     match serde_json::to_string_pretty(&report) {
-        Ok(json) => { let _ = fs::write(format!("{}.json", base_path), json); }
+        Ok(json) => {
+            if let Err(e) = fs::write(format!("{}.json", base_path), json) {
+                eprintln!("⚠️  Could not write JSON report: {}", e);
+            }
+        }
         Err(e) => eprintln!("⚠️  Could not serialize report to JSON: {}", e),
     }
     let markdown = render_markdown_report(&report, label);
-    let _ = fs::write(format!("{}.md", base_path), markdown);
+    if let Err(e) = fs::write(format!("{}.md", base_path), markdown) {
+        eprintln!("⚠️  Could not write Markdown report: {}", e);
+    }
     println!("📄 Report saved: {}.json / {}.md", base_path, base_path);
 }
 
