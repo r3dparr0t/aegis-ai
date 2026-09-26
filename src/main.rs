@@ -1,9 +1,8 @@
 // src/main.rs
-use std::sync::Arc;
+// use std::sync::Arc;
 use sqlx::sqlite::SqlitePoolOptions;
 
 use aegis_ai::{
-    executor::HttpTargetExecutor,
     input::prompt,
     labs::{self, runner::run_lab, spec::LabSpec, LabContext},
     memory::SqliteMemoryRepository,
@@ -45,24 +44,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Labs
     let labs = labs::registry::load_labs("labs")
         .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
-    if labs.is_empty() {
-        eprintln!("❌ No labs found in ./labs/ directory");
-        return Ok(());
-    }
-
-    let endpoints: Vec<&str> = labs.iter().map(|l| l.target.endpoint.as_str()).collect();
-
-    let target_base_url = prompt("Vulnerable target base URL", "http://localhost:5000");
-    let max_attempts: u32 = prompt("Max attempts per task", "5").parse().unwrap_or(5);
-
-    let executor = Arc::new(HttpTargetExecutor::new(target_base_url, endpoints));
-
+    
     let ctx = LabContext {
         provider,
-        executor,
         memory_repo,
         prefix,
-        max_attempts,
     };
 
     print_menu(&labs);

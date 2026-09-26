@@ -16,4 +16,5 @@ sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "migrate
 thiserror = "1.0"
 toml = "1.1.6"
 tokio = { version = "1.38", features = ["full"] }
+url = "2"
 uuid = { version = "1.8", features = ["v4"] }

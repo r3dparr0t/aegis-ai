@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::{
     domain::{ExecutionReport, LlmProvider},
     engine::ExecutionEngine,
-    executor::HttpTargetExecutor,
+    // executor::HttpTargetExecutor,
     memory::SqliteMemoryRepository,
 };
 
@@ -18,10 +18,10 @@ pub use spec::LabSpec;
 /// وابستگی‌های مشترک بین همه‌ی Labها.
 pub struct LabContext {
     pub provider: Arc<dyn LlmProvider>,
-    pub executor: Arc<HttpTargetExecutor>,
+    // pub executor: Arc<HttpTargetExecutor>,
     pub memory_repo: SqliteMemoryRepository,
     pub prefix: String,
-    pub max_attempts: u32,
+    // pub max_attempts: u32,
 }
 
 pub async fn run_task(

@@ -22,6 +22,7 @@ impl InternalTargetSpec {
 #[derive(Debug, Clone, Deserialize)]
 pub struct LabSpec {
     pub meta: LabMeta,
+    pub max_attempts: u32,  
     pub target: TargetSpec,
     pub internal_target: InternalTargetSpec,
     pub task: TaskSpec,
@@ -48,9 +49,21 @@ fn default_true() -> bool { true }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct TargetSpec {
-    pub endpoint: String,
+    pub url: String,
     #[serde(default)]
     pub body_key: String,
+}
+
+impl TargetSpec {
+    /// URL رو به (base, path) تقسیم می‌کنه برای HttpTargetExecutor.
+    /// مثلاً http://localhost:5000/api/v1/fetch
+    ///   → ("http://localhost:5000", "/api/v1/fetch")
+    pub fn split_base_path(&self) -> Option<(String, String)> {
+        let parsed = url::Url::parse(&self.url).ok()?;
+        let base = format!("{}://{}", parsed.scheme(), parsed.authority());
+        let path = parsed.path().to_string();
+        Some((base, path))
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

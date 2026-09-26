@@ -6,13 +6,13 @@ use crate::{
     domain::{Evaluator, LlmProvider},
     engine::{EngineConfig, ExecutionEngine},
     evaluator::{FlagEvaluator, TimeDelayEvaluator},
+    executor::HttpTargetExecutor,   // ← این‌جا
     input::prompt,
     provider::OllamaProvider,
     selection::choose_ollama_model,
-    labs::spec::InternalTargetSpec,
 };
 
-use super::{spec::{EvaluatorSpec, LabSpec}, run_task, LabContext};
+use super::{spec::{EvaluatorSpec, LabSpec, InternalTargetSpec}, run_task, LabContext};
 
 pub async fn run_lab(ctx: &LabContext, spec: &LabSpec) {
     println!("\n=== 🧪 {} ===", spec.meta.name);
@@ -47,29 +47,44 @@ pub async fn run_lab(ctx: &LabContext, spec: &LabSpec) {
     } else {
         ctx.provider.clone()
     };
-
-    let evaluator: Arc<dyn Evaluator> = match &spec.evaluator {
-        EvaluatorSpec::Flag { marker } => Arc::new(FlagEvaluator::new(marker.clone())),
-        EvaluatorSpec::TimeDelay { threshold_ms } => {
-            Arc::new(TimeDelayEvaluator::new(*threshold_ms))
+    
+    // ★ executor رو این‌جا بساز، از base_url و endpoint همین Lab
+    let (base, path) = match spec.target.split_base_path() {
+        Some(bp) => bp,
+        None => {
+            eprintln!("❌ Invalid target.url in lab '{}': {}", spec.meta.id, spec.target.url);
+            return;
         }
     };
+    
+    let executor = Arc::new(HttpTargetExecutor::new(base, vec![path.as_str()]));
+        let evaluator: Arc<dyn Evaluator> = match &spec.evaluator {
+            EvaluatorSpec::Flag { marker } => Arc::new(FlagEvaluator::new(marker.clone())),
+            EvaluatorSpec::TimeDelay { threshold_ms } => {
+                Arc::new(TimeDelayEvaluator::new(*threshold_ms))
+            }
+        };
 
-    let system_prompt = format!("{}\n\n{}", ctx.prefix, spec.system_prompt);
-    let user_input = prompt(&format!("Goal for {}", spec.meta.name), &spec.task.default_goal);
+    // ★ اینجا internal_target رو تو prompt و goal جایگزین می‌کنیم
+    let filled_prompt = fill_target_placeholders(&spec.system_prompt, &spec.internal_target);
+    let filled_goal   = fill_target_placeholders(&spec.task.default_goal, &spec.internal_target);
+
+    let system_prompt = format!("{}\n\n{}", ctx.prefix, filled_prompt);
+    let user_input = prompt(&format!("Goal for {}", spec.meta.name), &filled_goal);
 
     let config = EngineConfig {
-        max_attempts: ctx.max_attempts,
+        max_attempts: spec.max_attempts,   // ← از YAML، نه از ctx
         task_type,
-        // expected_body_key: Some(spec.target.body_key.clone()),
-		expected_body_key: if spec.target.body_key.is_empty() { None } else { 
-			Some(spec.target.body_key.clone())
-		},
+        expected_body_key: if spec.target.body_key.is_empty() {
+            None
+        } else {
+            Some(spec.target.body_key.clone())
+        },
     };
 
     let engine = ExecutionEngine::new(
         provider,
-        ctx.executor.clone(),
+        executor,                    // ← نه ctx.executor
         evaluator,
         ctx.memory_repo.clone(),
         config,
@@ -79,7 +94,7 @@ pub async fn run_lab(ctx: &LabContext, spec: &LabSpec) {
 }
 
 fn fill_target_placeholders(text: &str, target: &InternalTargetSpec) -> String {
-    text.replace("{{target_url}}", &target.url())
+    text.replace("{{target_url}}",  &target.url())
         .replace("{{target_host}}", &target.host)
         .replace("{{target_port}}", &target.port.to_string())
         .replace("{{target_path}}", &target.path)

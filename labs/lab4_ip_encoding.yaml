@@ -5,8 +5,10 @@ meta:
   order: 4
   tags: [ssrf, filter-bypass, ip-encoding]
 
+max_attempts: 5
+
 target:
-  endpoint: /api/v3/strict
+  url: http://localhost:5000/api/v3/strict
   body_key: target_url
 
 internal_target:

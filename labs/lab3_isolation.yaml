@@ -5,8 +5,10 @@ meta:
   order: 3
   tags: [memory, isolation]
 
+max_attempts: 5
+
 target:
-  endpoint: /api/v1/fetch
+  url: http://localhost:5000/api/v1/fetch
   body_key: url
 
 internal_target:
