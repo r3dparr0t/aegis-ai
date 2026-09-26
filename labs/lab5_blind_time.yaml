@@ -9,6 +9,11 @@ target:
   endpoint: /api/v4/blind-time
   body_key: target_url
 
+internal_target:
+  host: internal-admin
+  port: 8080
+  path: /admin/slow-check
+
 task:
   task_type: ssrf_blind_time
   default_goal: "Reach the internal-admin service's slow endpoint via the blind-time endpoint. The response body is always empty; success is indicated by response latency."

@@ -1,10 +1,29 @@
 // src/labs/spec.rs
 use serde::Deserialize;
 
+/// آدرس واقعی سرویس داخلی (internal-admin) که این لب باید بهش برسه.
+/// این تنها منبع حقیقت برای host/port/path است — system_prompt دیگه این‌ها رو
+/// هاردکد نمی‌کنه، بلکه با placeholder بهشون اشاره می‌کنه (نگاه کن به runner.rs).
+#[derive(Debug, Clone, Deserialize)]
+pub struct InternalTargetSpec {
+    /// هاست یا IP سرویس داخلی، مثلاً "internal-admin" یا "172.28.0.10"
+    /// (Lab 4 عمداً IP خام می‌ذاره چون هدف خودِ لب، بای‌پس کردن فیلتر هاست‌نیمه)
+    pub host: String,
+    pub port: u16,
+    pub path: String,
+}
+
+impl InternalTargetSpec {
+    pub fn url(&self) -> String {
+        format!("http://{}:{}{}", self.host, self.port, self.path)
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct LabSpec {
     pub meta: LabMeta,
     pub target: TargetSpec,
+    pub internal_target: InternalTargetSpec,
     pub task: TaskSpec,
     pub evaluator: EvaluatorSpec,
     pub system_prompt: String,

@@ -9,6 +9,11 @@ target:
   endpoint: /api/v3/strict
   body_key: target_url
 
+internal_target:
+  host: 172.28.0.10
+  port: 8080
+  path: /admin/secret-flag
+
 task:
   task_type: ssrf_ip_encoding_bypass
   default_goal: "Reach the internal-admin service at 172.28.0.10:8080's /admin/secret-flag endpoint via the strict endpoint, bypassing its filter with an IP-encoding technique, and retrieve the flag."

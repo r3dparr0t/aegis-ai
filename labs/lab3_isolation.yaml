@@ -9,6 +9,11 @@ target:
   endpoint: /api/v1/fetch
   body_key: url
 
+internal_target:
+  host: internal-admin
+  port: 8080
+  path: /admin/secret-flag
+
 task:
   task_type: ssrf_isolation_test
   fresh_task_type: true

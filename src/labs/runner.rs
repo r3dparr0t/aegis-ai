@@ -9,6 +9,7 @@ use crate::{
     input::prompt,
     provider::OllamaProvider,
     selection::choose_ollama_model,
+    labs::spec::InternalTargetSpec,
 };
 
 use super::{spec::{EvaluatorSpec, LabSpec}, run_task, LabContext};
@@ -75,4 +76,11 @@ pub async fn run_lab(ctx: &LabContext, spec: &LabSpec) {
     );
 
     run_task(&engine, &ctx.memory_repo, &spec.meta.name, &system_prompt, &user_input).await;
+}
+
+fn fill_target_placeholders(text: &str, target: &InternalTargetSpec) -> String {
+    text.replace("{{target_url}}", &target.url())
+        .replace("{{target_host}}", &target.host)
+        .replace("{{target_port}}", &target.port.to_string())
+        .replace("{{target_path}}", &target.path)
 }

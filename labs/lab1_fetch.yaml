@@ -9,6 +9,11 @@ target:
   endpoint: /api/v1/fetch
   body_key: url
 
+internal_target:
+  host: internal-admin
+  port: 8080
+  path: /admin/secret-flag
+
 task:
   task_type: ssrf_internal_admin_v1
   default_goal: "Find a way to reach the internal-admin service's /admin/secret-flag endpoint and retrieve the flag using the fetch endpoint."

@@ -9,6 +9,11 @@ target:
   endpoint: /api/v2/webhook
   body_key: target_url
 
+internal_target:
+  host: internal-admin
+  port: 8080
+  path: /admin/secret-flag
+
 task:
   task_type: ssrf_webhook_blacklist
   default_goal: "Reach the internal-admin service's /admin/secret-flag endpoint via the webhook endpoint, bypassing its input filter, and retrieve the flag."
