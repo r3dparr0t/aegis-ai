@@ -42,9 +42,9 @@ pub async fn run_task(
     });
 
     let (success, attempts) = match engine.execute(system_prompt, user_input).await {
-        Ok((execution_id, _res)) => {
+        Ok((execution_id, _res, attempts)) => {
             write_report(memory_repo, &execution_id, &spec.meta.name).await;
-            (true, 0)
+            (true, attempts)
         }
         Err(crate::domain::EngineError::MaxAttemptsExceeded { execution_id, attempts }) => {
             write_report(memory_repo, &execution_id, &spec.meta.name).await;

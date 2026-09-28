@@ -3,6 +3,7 @@ use std::sync::Arc;
 use sqlx::sqlite::SqlitePoolOptions;
 
 use aegis_ai::{
+    events::ConsoleObserver,
     input::prompt,
     labs::{self, runner::run_lab, spec::LabSpec, LabContext},
     memory::SqliteMemoryRepository,
@@ -44,12 +45,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Labs
     let labs = labs::registry::load_labs("labs")
         .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
-    
     let ctx = LabContext {
         provider,
         memory_repo,
         prefix,
-        observer: Arc::new(aegis_ai::events::ConsoleObserver),
+        observer: Arc::new(ConsoleObserver), 
     };
 
     print_menu(&labs);

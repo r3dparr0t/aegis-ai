@@ -15,10 +15,6 @@ use crate::{
 use super::{spec::{EvaluatorSpec, LabSpec, InternalTargetSpec}, run_task, LabContext};
 
 pub async fn run_lab(ctx: &LabContext, spec: &LabSpec) {
-    println!("\n=== 🧪 {} ===", spec.meta.name);
-    if !spec.meta.description.is_empty() {
-        println!("📖 {}", spec.meta.description);
-    }
 
     let mut task_type = spec.task.task_type.clone();
     if spec.task.fresh_task_type {
@@ -84,13 +80,21 @@ pub async fn run_lab(ctx: &LabContext, spec: &LabSpec) {
 
     let engine = ExecutionEngine::new(
         provider,
-        executor,                    // ← نه ctx.executor
+        executor,
         evaluator,
         ctx.memory_repo.clone(),
         config,
-    );
+    )
+    .with_observer(ctx.observer.clone());
 
-    run_task(&engine, &ctx.memory_repo, &ctx.observer, spec, &system_prompt, &user_input).await;
+    run_task(
+        &engine,
+        &ctx.memory_repo,
+        &ctx.observer,
+        spec,
+        &system_prompt,
+        &user_input,
+    ).await;
 }
 
 fn fill_target_placeholders(text: &str, target: &InternalTargetSpec) -> String {

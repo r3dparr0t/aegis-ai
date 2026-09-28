@@ -91,7 +91,7 @@ impl ExecutionEngine {
         &self,
         system_prompt: &str,
         user_input: &str,
-    ) -> Result<(String, LlmResponse), EngineError> {
+    ) -> Result<(String, LlmResponse, u32), EngineError> {
         // ۱. ایجاد رکورد Execution
         let execution_id = self
             .memory_repo
@@ -378,7 +378,8 @@ impl ExecutionEngine {
                     final_response: recorded_response.clone(),
                     attempts_count: current_attempt,
                 });
-                return Ok((execution_id.clone(), recorded_response));
+                //return Ok((execution_id.clone(), recorded_response));
+                return Ok((execution_id.clone(), recorded_response, current_attempt));
             }
 
             current_attempt += 1;
@@ -492,13 +493,12 @@ impl ExecutionEngine {
         }
         if err_details.contains("Egress blocked") {
             if self.config.task_type == "ssrf_ip_encoding_bypass" {
-                return "AVOID ERROR: Your encoded IP was WRONG — the request went to a different address. \
-                        You must ACTUALLY COMPUTE the value, not guess. Do this step by step:\n\
-                        1. Split the target IP into four octets: a.b.c.d\n\
-                        2. Compute: a*16777216 + b*65536 + c*256 + d\n\
-                        3. Write out each multiplication explicitly before adding.\n\
-                        4. ALWAYS keep the scheme (http://), the :PORT, and the /path.\n\
-                        Do NOT guess a round number. Do the arithmetic."
+                return "AVOID ERROR: Do NOT manually compute or write the encoded IP yourself. \
+                        You MUST use the plain dotted-quad form exactly as given in the prompt \
+                        (e.g. 172.28.0.10), and set the top-level field `ip_encoding` to one of \
+                        \"decimal\", \"hex\", or \"octal\". The engine performs the numeric \
+                        conversion before sending. Never write out an integer or hex yourself — \
+                        just the dotted-quad, plus the `ip_encoding` field."
                     .to_string();
             } else {
                 return "AVOID ERROR: You sent the request to a host the lab did not recognize. \
