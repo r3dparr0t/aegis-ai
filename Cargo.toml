@@ -6,7 +6,9 @@ authors = ["redparrot https://github.com/r3dparr0t>"]
 
 [dependencies]
 async-trait = "0.1"
+axum = "0.7"
 dotenvy = "0.15"
+open = "5"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 regex = "1.10"
 serde = { version = "1.0", features = ["derive"] }

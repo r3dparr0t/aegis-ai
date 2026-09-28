@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Aegis</title>
+<style>body{font-family:sans-serif;background:#0d1117;color:#e6edf3;padding:24px}
+h1{margin:0 0 16px}.lab{padding:12px;border:1px solid #30363d;border-radius:6px;margin:8px 0}
+button{background:#238636;color:white;border:0;padding:6px 12px;border-radius:4px;cursor:pointer}
+.passed{border-color:#3fb950}.running{border-color:#d29922}.failed{border-color:#f85149}</style>
+</head><body>
+<h1>🛡 Aegis</h1><div id="labs">loading...</div>
+<script>
+async function load(){
+  const r = await fetch('/api/labs');
+  const labs = await r.json();
+  document.getElementById('labs').innerHTML = labs.map(l =>
+    `<div class="lab ${l.status.kind||''}">
+      <b>${l.name}</b> — <span>${l.status.kind}</span>
+      <button onclick="run(${l.index})">Run</button>
+    </div>`).join('');
+}
+async function run(i){ await fetch(`/api/lab/${i}/run`,{method:'POST'}); load(); }
+load(); setInterval(load, 2000);
+</script>
+</body></html>
