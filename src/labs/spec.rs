@@ -1,10 +1,10 @@
 // src/labs/spec.rs
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};   
 
 /// آدرس واقعی سرویس داخلی (internal-admin) که این لب باید بهش برسه.
 /// این تنها منبع حقیقت برای host/port/path است — system_prompt دیگه این‌ها رو
 /// هاردکد نمی‌کنه، بلکه با placeholder بهشون اشاره می‌کنه (نگاه کن به runner.rs).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct InternalTargetSpec {
     /// هاست یا IP سرویس داخلی، مثلاً "internal-admin" یا "172.28.0.10"
     /// (Lab 4 عمداً IP خام می‌ذاره چون هدف خودِ لب، بای‌پس کردن فیلتر هاست‌نیمه)
@@ -18,8 +18,7 @@ impl InternalTargetSpec {
         format!("http://{}:{}{}", self.host, self.port, self.path)
     }
 }
-
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LabSpec {
     pub meta: LabMeta,
     pub max_attempts: u32,  
@@ -32,7 +31,7 @@ pub struct LabSpec {
     pub options: LabOptions,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LabMeta {
     pub id: String,
     pub name: String,
@@ -47,7 +46,7 @@ pub struct LabMeta {
 
 fn default_true() -> bool { true }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TargetSpec {
     pub url: String,
     #[serde(default)]
@@ -66,7 +65,7 @@ impl TargetSpec {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TaskSpec {
     pub task_type: String,
     pub default_goal: String,
@@ -74,14 +73,14 @@ pub struct TaskSpec {
     pub fresh_task_type: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EvaluatorSpec {
     Flag { marker: String },
     TimeDelay { threshold_ms: u64 },
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct LabOptions {
     #[serde(default)]
     pub allow_bigger_model: bool,
