@@ -22,31 +22,43 @@ pub struct LabContext {
     pub memory_repo: SqliteMemoryRepository,
     pub prefix: String,
     // pub max_attempts: u32,
+    pub observer: crate::events::SharedObserver, 
 }
 
 pub async fn run_task(
     engine: &ExecutionEngine,
     memory_repo: &SqliteMemoryRepository,
-    label: &str,
+    observer: &crate::events::SharedObserver,
+    spec: &LabSpec,
     system_prompt: &str,
     user_input: &str,
 ) {
-    println!("⚡ [{}] Executing SSRF self-correction loop...", label);
-    match engine.execute(system_prompt, user_input).await {
-        Ok((execution_id, res)) => {
-            println!("✅ [{}] Success! Target responded with the success marker.", label);
-            println!("Target response:\n{}", res.output);
-            println!("Latency: {} ms", res.latency_ms);
-            write_report(memory_repo, &execution_id, label).await;
+    use crate::events::Event;
+
+    observer.on_event(Event::LabStarted {
+        lab_id: spec.meta.id.clone(),
+        lab_name: spec.meta.name.clone(),
+        task_type: spec.task.task_type.clone(),
+    });
+
+    let (success, attempts) = match engine.execute(system_prompt, user_input).await {
+        Ok((execution_id, _res)) => {
+            write_report(memory_repo, &execution_id, &spec.meta.name).await;
+            (true, 0)
         }
         Err(crate::domain::EngineError::MaxAttemptsExceeded { execution_id, attempts }) => {
-            eprintln!("❌ [{}] Execution Failed: exceeded {} attempts", label, attempts);
-            write_report(memory_repo, &execution_id, label).await;
+            write_report(memory_repo, &execution_id, &spec.meta.name).await;
+            (false, attempts)
         }
-        Err(err) => {
-            eprintln!("❌ [{}] Execution Failed: {}", label, err);
-        }
-    }
+        Err(_) => (false, 0),
+    };
+
+    observer.on_event(Event::LabFinished {
+        lab_id: spec.meta.id.clone(),
+        lab_name: spec.meta.name.clone(),
+        success,
+        attempts,
+    });
 }
 
 /// یه برچسب انسانی (که ممکنه فاصله، اسلش، خط تیره، پرانتز و ... داشته باشه) رو

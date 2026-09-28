@@ -1,23 +1,25 @@
 // src/engine/orchestrator.rs
 use std::sync::Arc;
 use uuid::Uuid;
+
 use crate::{
-	domain::{EngineError, EvaluationError, EvaluationInput, EvaluationResult, Evaluator, LessonUsage,
+    domain::{EngineError, EvaluationError, EvaluationInput, EvaluationResult, Evaluator, LessonUsage,
 		LlmProvider, LlmRequest, LlmResponse, MemoryQuery, TargetExecutor,},
 	engine::state::ExecutionState,
 	memory::SqliteMemoryRepository, 
     executor::{json::{extract_json_object, strip_code_fences},
-        payload::apply_ip_encoding},                    
+        payload::apply_ip_encoding},
+    events::{ConsoleObserver, Event, SharedObserver},              
 };
+#[allow(unused_imports)]
+use crate::events::EngineObserver;
+
 pub struct EngineConfig {
     pub max_attempts: u32,
     pub task_type: String,
-    /// اگه Some باشه، انتظار می‌ره فیلد `body` تو payload مدل این کلید رو داشته باشه.
-    /// برای validation زودهنگام قبل از زدن به هدف استفاده می‌شه.
     pub expected_body_key: Option<String>,
 }
 
-/// یک Lesson که در پرامپت یک attempt خاص تزریق شده؛ id برای ثبت بعدی در lesson_usage نگه داشته می‌شود
 struct AppliedLesson {
     id: String,
     text: String,
@@ -29,6 +31,7 @@ pub struct ExecutionEngine {
     evaluator: Arc<dyn Evaluator>,
     memory_repo: SqliteMemoryRepository,
     config: EngineConfig,
+    observer: SharedObserver,
 }
 
 impl ExecutionEngine {
@@ -45,27 +48,68 @@ impl ExecutionEngine {
             evaluator,
             memory_repo,
             config,
+            observer: Arc::new(ConsoleObserver),
         }
     }
 
-    fn log_transition(state: &ExecutionState) {
-        println!("🔷 [STATE] {}", state);
+    pub fn with_observer(mut self, observer: SharedObserver) -> Self {
+        self.observer = observer;
+        self
     }
 
-    /// اجرای اصلی حلقه Self-Correction:
-    /// Generate (مدل payload می‌سازد) -> Execute (payload واقعاً به هدف زده می‌شود) -> Evaluate (پاسخ واقعی هدف بررسی می‌شود) -> Reflect
-    pub async fn execute(&self, system_prompt: &str, user_input: &str) -> Result<(String, LlmResponse), EngineError> {
-        // ۱. ایجاد رکورد Execution جدید در دیتابیس
+    // -------------------------------------------------------------------
+    // Helpers — تنها جایی که event ساخته می‌شه
+    // -------------------------------------------------------------------
+
+    #[inline]
+    fn emit(&self, event: Event) {
+        self.observer.on_event(event);
+    }
+
+    /// معادل قبلیِ `🔷 [STATE] ...`. الان به‌جای چاپ، event می‌فرسته.
+    #[inline]
+    fn state(&self, transition: ExecutionState) {
+        self.emit(Event::State { transition });
+    }
+
+    /// هر خطایی رو با context مشخص emit می‌کنه. جایگزین چاپ‌های تکراری
+    /// `println!("❌ ...")` و `log_transition(Failed)`.
+    #[inline]
+    fn emit_error(&self, context: &'static str, message: impl Into<String>, fatal: bool) {
+        self.emit(Event::Error {
+            context,
+            message: message.into(),
+            fatal,
+        });
+    }
+
+    // -------------------------------------------------------------------
+    // Main loop
+    // -------------------------------------------------------------------
+
+    pub async fn execute(
+        &self,
+        system_prompt: &str,
+        user_input: &str,
+    ) -> Result<(String, LlmResponse), EngineError> {
+        // ۱. ایجاد رکورد Execution
         let execution_id = self
             .memory_repo
             .create_execution(&self.config.task_type, user_input)
             .await
-            .map_err(|e| EngineError::Database(e.to_string()))?;
+            .map_err(|e| {
+                self.emit_error(
+                    "database",
+                    format!("create_execution failed: {}", e),
+                    true,
+                );
+                EngineError::Database(e.to_string())
+            })?;
 
         let mut current_attempt = 1;
         let mut accumulated_lessons: Vec<AppliedLesson> = Vec::new();
 
-        // ۲. بازیابی اولیه‌ی حافظه (Lessons) پیش از اولین تلاش
+        // ۲. بازیابی اولیه‌ی حافظه
         let query = MemoryQuery {
             task_type: self.config.task_type.clone(),
             error_category: None,
@@ -82,11 +126,16 @@ impl ExecutionEngine {
             }
         }
 
-        Self::log_transition(&ExecutionState::Preparing);
+        self.state(ExecutionState::Preparing);
 
         loop {
             if current_attempt > self.config.max_attempts {
-                Self::log_transition(&ExecutionState::Failed {
+                self.emit_error(
+                    "engine",
+                    format!("Exceeded max attempts ({})", self.config.max_attempts),
+                    true,
+                );
+                self.state(ExecutionState::Failed {
                     reason: "Exceeded max attempts".to_string(),
                     attempts_count: self.config.max_attempts,
                 });
@@ -96,71 +145,83 @@ impl ExecutionEngine {
                 });
             }
 
-            // Lessonهایی که دقیقاً در همین attempt به پرامپت تزریق می‌شوند (برای ثبت بعدی در lesson_usage)
             let lesson_ids_used_this_attempt: Vec<String> =
                 accumulated_lessons.iter().map(|l| l.id.clone()).collect();
 
-            println!(
-                "\n🔁 [Attempt {}/{}] execution_id={}",
-                current_attempt, self.config.max_attempts, execution_id
-            );
-            if accumulated_lessons.is_empty() {
-                println!("🧠 No lessons injected (first attempt or no relevant memory).");
-            } else {
-                println!("🧠 Injecting {} lesson(s) into prompt:", accumulated_lessons.len());
-                for l in &accumulated_lessons {
-                    println!("   - [{}] {}", &l.id[..8.min(l.id.len())], l.text);
-                }
-            }
+            self.emit(Event::AttemptStarted {
+                execution_id: execution_id.clone(),
+                attempt: current_attempt,
+                max_attempts: self.config.max_attempts,
+            });
 
-            // ساخت پرامپت نهایی با اعمال درس‌های قبلی در Context Assembler ساده
+            self.emit(Event::LessonsInjected {
+                count: accumulated_lessons.len(),
+                texts: accumulated_lessons.iter().map(|l| l.text.clone()).collect(),
+            });
+
+            // ساخت پرامپت
             let dynamic_system_prompt = self.assemble_prompt(system_prompt, &accumulated_lessons);
 
             let request = LlmRequest {
                 system_prompt: dynamic_system_prompt,
                 user_input: user_input.to_string(),
-                temperature: Some(0.8), // مقدار بالاتر تا attemptهای مختلف واقعاً payload متفاوت امتحان کنند
+                temperature: Some(0.8),
                 max_tokens: None,
             };
 
-            // ارسال درخواست به LLM تا payload حمله را بسازد
-            Self::log_transition(&ExecutionState::Generating);
+            // -------------------------------------------------------------------
+            // LLM call
+            // -------------------------------------------------------------------
+            self.state(ExecutionState::Generating);
             let response = match self.provider.generate(&request).await {
                 Ok(res) => res,
                 Err(err) => {
-                    // اگر خطای ارتباطی قابل Retry بود، تلاش مجدد می‌کنیم
                     if err.is_retryable() && current_attempt < self.config.max_attempts {
+                        self.emit_error(
+                            "llm",
+                            format!("retryable transport error, will retry: {}", err),
+                            false,
+                        );
                         current_attempt += 1;
                         continue;
                     }
-                    Self::log_transition(&ExecutionState::Failed {
-                        reason: format!("LLM transport error: {}", err),
-                        attempts_count: current_attempt,
-                    });
+                    self.emit_error("llm", format!("transport error: {}", err), true);
                     return Err(EngineError::Llm(err));
                 }
             };
 
-            println!("📝 Model raw output:\n{}", response.output);
-            Self::log_transition(&ExecutionState::Evaluating {
+            self.emit(Event::LlmResponded {
+                raw: response.output.clone(),
+                latency_ms: response.latency_ms,
+            });
+            self.state(ExecutionState::Evaluating {
                 subject: "model output structure",
                 preview: response.output.chars().take(80).collect(),
             });
 
-            // ۳. تلاش برای پارس کردن خروجی مدل به‌عنوان payload معتبر برای Executor
+            // -------------------------------------------------------------------
+            // Parse JSON
+            // -------------------------------------------------------------------
             let cleaned = extract_json_object(&response.output)
-				.unwrap_or_else(|| strip_code_fences(&response.output));
-			let payload: serde_json::Value = match serde_json::from_str(&cleaned) {
-						Ok(v) => v,
-               Err(err) => {
-					println!("❌ Not valid JSON: {}\nExtracted (first 200): {}",
-							 err,
-							 cleaned.chars().take(200).collect::<String>());
-					let eval_result = EvaluationResult {
-						is_valid: false,
-						error: Some(EvaluationError::InvalidJson),
-						error_details: Some(format!("Model output was not valid JSON: {}", err)),
-					};
+                .unwrap_or_else(|| strip_code_fences(&response.output));
+
+            let payload: serde_json::Value = match serde_json::from_str(&cleaned) {
+                Ok(v) => v,
+                Err(err) => {
+                    self.emit_error(
+                        "parse",
+                        format!(
+                            "JSON parse failed: {}. Extracted (first 200): {}",
+                            err,
+                            cleaned.chars().take(200).collect::<String>()
+                        ),
+                        false,
+                    );
+                    let eval_result = EvaluationResult {
+                        is_valid: false,
+                        error: Some(EvaluationError::InvalidJson),
+                        error_details: Some(format!("Model output was not valid JSON: {}", err)),
+                    };
                     self.record_attempt_and_learn(
                         &execution_id,
                         current_attempt,
@@ -176,16 +237,21 @@ impl ExecutionEngine {
                 }
             };
 
-            // ۳.۵. اگه برای این Lab یه body_key انتظار می‌ره، چک کن payload واقعاً همون کلید رو داره.
-            // این یه خطای زودهنگامه با پیام واضح، جای اینکه executor بگه "missing 'body' field".
+            // -------------------------------------------------------------------
+            // Validate body_key
+            // -------------------------------------------------------------------
             if let Some(expected_key) = &self.config.expected_body_key {
                 if let Some(body) = payload.get("body") {
                     if let Some(obj) = body.as_object() {
                         if !obj.contains_key(expected_key) {
                             let actual_keys: Vec<&String> = obj.keys().collect();
-                            println!(
-                                "❌ Payload body is missing expected key '{}'. Got keys: {:?}",
-                                expected_key, actual_keys
+                            self.emit_error(
+                                "payload",
+                                format!(
+                                    "Body missing expected key '{}'. Got keys: {:?}",
+                                    expected_key, actual_keys
+                                ),
+                                false,
                             );
                             let eval_result = EvaluationResult {
                                 is_valid: false,
@@ -211,20 +277,31 @@ impl ExecutionEngine {
                     }
                 }
             }
+
+            // -------------------------------------------------------------------
+            // IP-encoding transform
+            // -------------------------------------------------------------------
             let mut payload = payload;
+            let before_str = payload.to_string();
             if let Some(fmt) = apply_ip_encoding(&mut payload) {
-                println!("🔧 IP encoding applied: {:?}", fmt);
-                println!("   post-transform payload: {}", payload);
+                self.emit(Event::PayloadTransformed {
+                    before: before_str,
+                    after: payload.to_string(),
+                    format: format!("{:?}", fmt),
+                });
             }
-            
-            Self::log_transition(&ExecutionState::Executing { payload: payload.clone() });
-            println!("🎯 Sending payload to target: {}", payload);
-            
-            // ۴. اجرای واقعی payload روی هدف (Execute)
-           let outcome = match self.executor.execute(&payload).await {
+
+            // -------------------------------------------------------------------
+            // Execute
+            // -------------------------------------------------------------------
+            let payload_str = payload.to_string();
+            self.state(ExecutionState::Executing { payload: payload.clone() });
+            self.emit(Event::PayloadParsed { payload: payload_str });
+
+            let outcome = match self.executor.execute(&payload).await {
                 Ok(o) => o,
                 Err(err) => {
-                    println!("❌ Executor error: {}", err);
+                    self.emit_error("execute", format!("executor error: {}", err), false);
                     let eval_result = EvaluationResult {
                         is_valid: false,
                         error: Some(EvaluationError::MissingField),
@@ -245,34 +322,38 @@ impl ExecutionEngine {
                 }
             };
 
-            // ۵. ارزیابی پاسخ *واقعی هدف* (نه خروجی خام مدل)
-            Self::log_transition(&ExecutionState::Evaluating {
+            // -------------------------------------------------------------------
+            // Evaluate
+            // -------------------------------------------------------------------
+            self.state(ExecutionState::Evaluating {
                 subject: "real target response",
                 preview: outcome.body.chars().take(80).collect(),
             });
-            println!(
-                "📡 Target responded [{}]: {}",
-                outcome.status_code,
-                outcome.body.chars().take(300).collect::<String>()
-            );
-            // خط ~۲۲۰ (فراخوانی evaluate)
+            self.emit(Event::TargetResponded {
+                status: outcome.status_code,
+                body_excerpt: outcome.body.chars().take(300).collect(),
+                latency_ms: outcome.latency_ms,
+            });
+
             let eval_result = self.evaluator.evaluate(EvaluationInput {
                 body: &outcome.body,
                 status_code: outcome.status_code,
                 latency_ms: outcome.latency_ms,
             });
-            
+
             if eval_result.is_valid {
-                println!("✅ Evaluator: PASSED");
+                self.emit(Event::EvaluationPassed);
             } else {
-                println!(
-                    "❌ Evaluator: FAILED [{}] - {}",
-                    eval_result.error.as_ref().map(|e| e.to_string()).unwrap_or_default(),
-                    eval_result.error_details.as_deref().unwrap_or("")
-                );
+                self.emit(Event::EvaluationFailed {
+                    category: eval_result
+                        .error
+                        .as_ref()
+                        .map(|e| e.to_string())
+                        .unwrap_or_default(),
+                    detail: eval_result.error_details.clone().unwrap_or_default(),
+                });
             }
 
-            // نسخه‌ای از پاسخ برای ثبت/بازگشت که بدنه‌اش پاسخ واقعی هدف است، نه متن خام مدل
             let recorded_response = LlmResponse {
                 output: outcome.body.clone(),
                 model: response.model.clone(),
@@ -292,9 +373,8 @@ impl ExecutionEngine {
             )
             .await?;
 
-            // اگر پاسخ هدف معیار موفقیت را داشت، پایان موفقیت‌آمیز
             if eval_result.is_valid {
-                Self::log_transition(&ExecutionState::Completed {
+                    self.state(ExecutionState::Completed {
                     final_response: recorded_response.clone(),
                     attempts_count: current_attempt,
                 });
@@ -305,8 +385,10 @@ impl ExecutionEngine {
         }
     }
 
-    /// ثبت یک تلاش در دیتابیس، ثبت اثر Lessonهای استفاده‌شده در همین تلاش (lesson_usage)،
-    /// و در صورت شکست، استخراج و ذخیره‌ی Lesson جدید (فاز Reflecting)
+    // -------------------------------------------------------------------
+    // record_attempt_and_learn — بدون println!، همه‌ش emit
+    // -------------------------------------------------------------------
+
     async fn record_attempt_and_learn(
         &self,
         execution_id: &str,
@@ -321,10 +403,15 @@ impl ExecutionEngine {
             .memory_repo
             .record_attempt(execution_id, attempt_number, request, response, eval_result)
             .await
-            .map_err(|e| EngineError::Database(e.to_string()))?;
+            .map_err(|e| {
+                self.emit_error(
+                    "database",
+                    format!("record_attempt failed: {}", e),
+                    true,
+                );
+                EngineError::Database(e.to_string())
+            })?;
 
-        // برای هر Lesson که در پرامپت همین attempt تزریق شده بود، ثبت می‌کنیم که آیا
-        // نتیجه‌ی این تلاش موفقیت‌آمیز بود یا نه (پایه‌ی محاسبه‌ی success_rate در آینده)
         for lesson_id in lesson_ids_used {
             let usage = LessonUsage {
                 id: Uuid::new_v4().to_string(),
@@ -333,8 +420,14 @@ impl ExecutionEngine {
                 attempt_id: attempt_id.clone(),
                 resulted_in_success: eval_result.is_valid,
             };
-            // شکست در ثبت usage نباید کل اجرای engine را متوقف کند
-            let _ = self.memory_repo.record_lesson_usage(&usage).await;
+            // شکست در usage نباید کل اجرا رو متوقف کنه — ولی event می‌فرستیم
+            if let Err(e) = self.memory_repo.record_lesson_usage(&usage).await {
+                self.emit_error(
+                    "database",
+                    format!("record_lesson_usage failed (non-fatal): {}", e),
+                    false,
+                );
+            }
         }
 
         if eval_result.is_valid {
@@ -342,11 +435,10 @@ impl ExecutionEngine {
         }
 
         if let Some(ref err_cat) = eval_result.error {
-            Self::log_transition(&ExecutionState::Reflecting {
+            self.state(ExecutionState::Reflecting {
                 response: response.clone(),
                 eval_result: eval_result.clone(),
-            });
-
+             });
             let err_details = eval_result
                 .error_details
                 .as_deref()
@@ -354,26 +446,39 @@ impl ExecutionEngine {
 
             let lesson_text = self.build_lesson_text(err_cat, err_details);
 
-            if let Ok(new_lesson_id) = self
+            match self
                 .memory_repo
                 .save_lesson(&self.config.task_type, err_cat, &lesson_text)
                 .await
             {
-                println!("💾 Saved new lesson [{}]: {}", &new_lesson_id[..8.min(new_lesson_id.len())], lesson_text);
-                accumulated_lessons.push(AppliedLesson {
-                    id: new_lesson_id,
-                    text: lesson_text,
-                });
+                Ok(new_lesson_id) => {
+                    self.emit(Event::LessonSaved {
+                        id: new_lesson_id.clone(),
+                        text: lesson_text.clone(),
+                    });
+                    accumulated_lessons.push(AppliedLesson {
+                        id: new_lesson_id,
+                        text: lesson_text,
+                    });
+                }
+                Err(e) => {
+                    self.emit_error(
+                        "database",
+                        format!("save_lesson failed (non-fatal): {}", e),
+                        false,
+                    );
+                }
             }
         }
 
         Ok(())
     }
 
-    /// از روی متن خام خطا (که اغلب dump یه exception پایتونیه)، در صورت امکان یک درس
-    /// *قابل‌عمل* استخراج می‌کند به‌جای برگردوندن خام همون پیام به مدل.
+    // -------------------------------------------------------------------
+    // بقیه — بدون تغییر
+    // -------------------------------------------------------------------
+
     fn build_lesson_text(&self, err_cat: &EvaluationError, err_details: &str) -> String {
-        // الگوی رایج: اتصال به پورت اشتباه (Connection refused + port=N)
         if err_details.contains("Connection refused") {
             if let Some(port) = Self::extract_port(err_details) {
                 return format!(
@@ -386,9 +491,6 @@ impl ExecutionEngine {
             }
         }
         if err_details.contains("Egress blocked") {
-            // فقط برای تسکی که واقعاً IP-encoding می‌خواد، راهنمای محاسبه بده.
-            // برای بقیه تسک‌ها، این خطا یعنی مدل یه IP خالی‌از‌خود ساخته —
-            // باید برگرده به همون hostname دقیقی که تو prompt اومده.
             if self.config.task_type == "ssrf_ip_encoding_bypass" {
                 return "AVOID ERROR: Your encoded IP was WRONG — the request went to a different address. \
                         You must ACTUALLY COMPUTE the value, not guess. Do this step by step:\n\
@@ -406,14 +508,11 @@ impl ExecutionEngine {
                     .to_string();
             }
         }
-        // الگوی رایج: نبود scheme در URL (requests نمی‌تونه آداپتور پیدا کنه)
         if err_details.contains("No connection adapters were found") {
             return "AVOID ERROR: Your URL was missing a valid scheme (http:// or https://). \
                     Always include the full scheme at the start of the URL."
                 .to_string();
         }
-
-        // الگوی رایج: خطای DNS/hostname
         if err_details.contains("Name or service not known")
             || err_details.contains("nodename nor servname provided")
         {
@@ -421,15 +520,12 @@ impl ExecutionEngine {
                     Use the exact internal service name given in the system prompt, spelled correctly."
                 .to_string();
         }
-
-        // پیش‌فرض: همون رفتار قبلی (dump خام خطا)، برای موارد ناشناخته
         format!(
             "AVOID ERROR [{}]: Previous attempt was rejected because: '{}'. Try a different payload next time.",
             err_cat, err_details
         )
     }
 
-    /// استخراج شماره پورت از رشته‌هایی مثل "port=80)" که در exceptionهای requests/urllib3 پایتون رایجه
     fn extract_port(text: &str) -> Option<&str> {
         let idx = text.find("port=")?;
         let after = &text[idx + "port=".len()..];
@@ -441,19 +537,16 @@ impl ExecutionEngine {
         }
     }
 
-    /// ترکیب سیستم پرامپت با حافظه درس‌آموخته‌ها (Context Assembler)
     fn assemble_prompt(&self, base_system_prompt: &str, lessons: &[AppliedLesson]) -> String {
         if lessons.is_empty() {
             return base_system_prompt.to_string();
         }
-
         let lessons_block = lessons
             .iter()
             .enumerate()
             .map(|(i, l)| format!("{}. {}", i + 1, l.text))
             .collect::<Vec<_>>()
             .join("\n");
-
         format!(
             "{}\n\n### CRITICAL LESSONS FROM PREVIOUS ATTEMPTS (DO NOT REPEAT THESE ERRORS):\n{}",
             base_system_prompt, lessons_block

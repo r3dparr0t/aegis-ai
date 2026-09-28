@@ -90,7 +90,7 @@ pub async fn run_lab(ctx: &LabContext, spec: &LabSpec) {
         config,
     );
 
-    run_task(&engine, &ctx.memory_repo, &spec.meta.name, &system_prompt, &user_input).await;
+    run_task(&engine, &ctx.memory_repo, &ctx.observer, spec, &system_prompt, &user_input).await;
 }
 
 fn fill_target_placeholders(text: &str, target: &InternalTargetSpec) -> String {

@@ -1,5 +1,5 @@
 // src/main.rs
-// use std::sync::Arc;
+use std::sync::Arc;
 use sqlx::sqlite::SqlitePoolOptions;
 
 use aegis_ai::{
@@ -49,6 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         provider,
         memory_repo,
         prefix,
+        observer: Arc::new(aegis_ai::events::ConsoleObserver),
     };
 
     print_menu(&labs);
