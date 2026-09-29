@@ -6,7 +6,8 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
-use crate::labs::runner::run_lab as runner_run_lab;
+
+use crate::labs::{lab::Lab, runner};
 
 use super::AppCtx;
 
@@ -15,17 +16,17 @@ pub async fn index() -> Html<&'static str> {
 }
 
 pub async fn list_labs(State(app): State<AppCtx>) -> impl IntoResponse {
-    let s = app.state.lock().unwrap();
     let labs: Vec<_> = app.labs.iter().enumerate().map(|(i, lab)| {
         json!({
             "index": i,
-            "id": lab.meta.id,
-            "name": lab.meta.name,
-            "description": lab.meta.description,
-            "url": lab.target.url,
-            "target": lab.internal_target.url(),
-            "max_attempts": lab.max_attempts,
-            "status": &s.statuses[i],
+            "id": lab.id(),
+            "name": lab.name(),
+            "description": lab.description(),
+            "url": lab.url(),
+            "target": lab.internal_url(),
+            "max_attempts": lab.max_attempts(),
+            "status": lab.state(),
+            "running": lab.is_running(),
         })
     }).collect();
     Json(json!(labs))
@@ -35,22 +36,22 @@ pub async fn get_lab(
     State(app): State<AppCtx>,
     Path(idx): Path<usize>,
 ) -> impl IntoResponse {
-    let s = app.state.lock().unwrap();
     if idx >= app.labs.len() {
         return (StatusCode::NOT_FOUND, Json(json!({"error": "not found"}))).into_response();
     }
     let lab = &app.labs[idx];
     Json(json!({
         "index": idx,
-        "id": lab.meta.id,
-        "name": lab.meta.name,
-        "description": lab.meta.description,
-        "url": lab.target.url,
-        "target": lab.internal_target.url(),
-        "max_attempts": lab.max_attempts,
-        "system_prompt": lab.system_prompt,
-        "default_goal": lab.task.default_goal,
-        "status": &s.statuses[idx],
+        "id": lab.id(),
+        "name": lab.name(),
+        "description": lab.description(),
+        "url": lab.url(),
+        "target": lab.internal_url(),
+        "max_attempts": lab.max_attempts(),
+        "system_prompt": lab.spec.system_prompt,
+        "default_goal": lab.spec.task.default_goal,
+        "status": lab.state(),
+        "running": lab.is_running(),
     })).into_response()
 }
 
@@ -61,7 +62,7 @@ pub async fn get_yaml(
     if idx >= app.labs.len() {
         return (StatusCode::NOT_FOUND, "not found").into_response();
     }
-    let path = app.labs_dir.join(format!("{}.yaml", app.labs[idx].meta.id));
+    let path = app.labs_dir.join(format!("{}.yaml", app.labs[idx].id()));
     match std::fs::read_to_string(&path) {
         Ok(content) => (StatusCode::OK, content).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("read: {}", e)).into_response(),
@@ -84,7 +85,10 @@ pub async fn save_yaml(
     if idx >= app.labs.len() {
         return (StatusCode::NOT_FOUND, "not found").into_response();
     }
-    let path = app.labs_dir.join(format!("{}.yaml", app.labs[idx].meta.id));
+    // نکته: این فقط فایل YAML رو روی دیسک آپدیت می‌کنه. چون Lab.spec از یه
+    // بارگذاری قبلی ساخته شده و immutable ـه، این تغییر بعد از ری‌استارت
+    // برنامه اعمال می‌شه، نه فوری روی همین Lab در حافظه.
+    let path = app.labs_dir.join(format!("{}.yaml", app.labs[idx].id()));
     match std::fs::write(&path, payload.content) {
         Ok(_) => (StatusCode::OK, "saved").into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("write: {}", e)).into_response(),
@@ -99,19 +103,24 @@ pub async fn run_lab(
         return (StatusCode::NOT_FOUND, "not found").into_response();
     }
 
-    // active_lab رو ست کن
-    {
-        let mut s = app.state.lock().unwrap();
-        s.active_lab = Some(idx);
-        s.statuses[idx] = super::state::LabStatus::Running { attempt: 0, max: app.labs[idx].max_attempts };
+    let lab = app.labs[idx].clone(); // Arc<Lab>
+
+    // قفل global رو همین‌جا، هم‌زمان با پاسخ HTTP، می‌گیریم — نه داخل تسک
+    // spawn‌شده — چون باید بلافاصله بدونیم گرفتیمش یا نه تا 200/409 درست
+    // برگردونیم. اگه این‌جا فقط `is_running()` رو چک می‌کردیم (بدون گرفتن
+    // قفل)، دو تا request هم‌زمان می‌تونستن هر دو از این چک رد بشن.
+    if !Lab::try_start(&lab, &app.ctx.run_lock) {
+        return (StatusCode::CONFLICT, "another lab is already running").into_response();
     }
 
     let ctx = app.ctx.clone();
-    let spec = app.labs[idx].clone();
-    let default_goal = spec.task.default_goal.clone();
+    let default_goal = lab.default_goal();
 
     tokio::spawn(async move {
-        runner_run_lab(&ctx, &spec, Some(default_goal)).await;
+        // قفل از قبل گرفته شده، پس از `run_locked` استفاده می‌کنیم نه
+        // `runner::run_lab` (که خودش دوباره try_start می‌زنه و چون قفل قبلاً
+        // گرفته شده، همیشه false می‌گیره و اجرا رو skip می‌کنه).
+        runner::run_locked(&ctx, &lab, Some(default_goal)).await;
     });
 
     (StatusCode::OK, "started").into_response()
@@ -122,13 +131,13 @@ pub async fn list_reports(
     Path(idx): Path<usize>,
 ) -> impl IntoResponse {
     if idx >= app.labs.len() { return Json(json!([])); }
-    let lab_id = &app.labs[idx].meta.id;
+    let lab_id = app.labs[idx].id().to_string();
     let dir = PathBuf::from("reports");
     let mut reports = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for e in entries.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
-            if !name.starts_with(lab_id) || !name.ends_with(".json") { continue; }
+            if !name.starts_with(&lab_id) || !name.ends_with(".json") { continue; }
             let mtime = e.metadata().ok()
                 .and_then(|m| m.modified().ok())
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())

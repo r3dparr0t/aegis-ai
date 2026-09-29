@@ -1,14 +1,15 @@
 // src/main.rs
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
 use sqlx::sqlite::SqlitePoolOptions;
-use std::{sync::Mutex, path::PathBuf};
 
 use aegis_ai::{
-    events::{ConsoleObserver, SharedObserver, },
+    events::{ConsoleObserver, SharedObserver},
     input::prompt,
-    labs::{self, runner::run_lab, spec::LabSpec, LabContext},
+    labs::{self, runner, Lab, LabContext, LabState},
     memory::SqliteMemoryRepository,
-    selection::{select_provider, SelectedProvider},
+    selection::select_provider,
+    selection::SelectedProvider,
     web,
     web::state::{CompositeObserver, SharedWebState, WebState, WebStateObserver},
 };
@@ -28,7 +29,7 @@ const FORMAT_RULES: &str =
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Aegis-AI Engine (SSRF Fuzzing Mode)\n");
     let _ = dotenvy::dotenv();
-    let url =format!("http://{}", HOST);
+    let url = format!("http://{}", HOST);
     // DB
     let pool = SqlitePoolOptions::new()
         .connect("sqlite://aegis.db?mode=rwc")
@@ -54,24 +55,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("❌ No labs found in ./labs/");
         return Ok(());
     }
-    let labs = Arc::new(labs_vec);
+    let labs = Arc::new(labs_vec); // Arc<Vec<Arc<Lab>>>
 
-    // Web state
-    let web_state: SharedWebState = Arc::new(Mutex::new(WebState::new(labs.len())));
+    // Web state (فقط لاگ زنده)
+    let web_state: SharedWebState = Arc::new(Mutex::new(WebState::new()));
+
+    // قفل global تک‌نفره — تنها منبع حقیقتِ «الان کدوم Lab داره اجرا می‌شه».
+    // هم CLI هم وب از همین یکی استفاده می‌کنن.
+    let run_lock = Arc::new(Mutex::new(None));
 
     // Observer ترکیبی
     let composite: SharedObserver = Arc::new(CompositeObserver {
         console: ConsoleObserver,
-        web: WebStateObserver { state: web_state.clone() },
+        web: WebStateObserver { state: web_state.clone(), run_lock: run_lock.clone() },
     });
-    
+
     // LabContext
-     let ctx = Arc::new(LabContext {
+    let ctx = Arc::new(LabContext {
         provider,
         memory_repo,
         prefix,
         observer: composite,
+        run_lock: run_lock.clone(),
     });
+
     // Web server (background)
     let app_ctx = web::AppCtx {
         ctx: ctx.clone(),
@@ -100,19 +107,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let all_choice = (labs.len() + 1).to_string();
     if choice == all_choice {
-    for (i, spec) in labs.iter().enumerate() {
-            web_state.lock().unwrap().active_lab = Some(i);
-            run_lab(&ctx, spec, None).await;
+        for lab in labs.iter() {
+            runner::run_lab(&ctx, lab, None).await;
         }
     } else if let Ok(idx) = choice.parse::<usize>() {
-    if idx >= 1 && idx <= labs.len() {
-        web_state.lock().unwrap().active_lab = Some(idx - 1);
-        run_lab(&ctx, &labs[idx - 1], None).await;
-    } else {
+        if idx >= 1 && idx <= labs.len() {
+            runner::run_lab(&ctx, &labs[idx - 1], None).await;
+        } else {
             eprintln!("❌ Invalid lab index: {}", idx);
         }
-    } else if let Some(spec) = labs.iter().find(|l| l.meta.id == choice) {
-        run_lab(&ctx, spec, None).await;
+    } else if let Some(lab) = labs.iter().find(|l| l.id() == choice) {
+        runner::run_lab(&ctx, lab, None).await;
     } else {
         eprintln!("❌ Unknown choice: {}", choice);
     }
@@ -125,22 +130,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn print_brand() {
     println!(
         r#"
-   ___                 _     ___  ___
-  / _ \__   _____ _ __| | __/ _ \/ _ \
- / /_)/\ \ / / _ \ '__| |/ / /_)/ /_)/"
-┌──────────────────────────────────────────────┐
-│  🛡  Aegis-AI — Web panel is live            │
-│  You can also keep using the CLI below.      │
-└──────────────────────────────────────────────┘"#);
-    println!("[*] Just open this link:  {} ", format!("http://{}", HOST));
+    _    _____ ____ ___ ____  
+   / \  | ____/ ___|_ _/ ___| 
+  / _ \ |  _|| |  _ | |\___ \ 
+ / ___ \| |__| |_| || | ___) |
+/_/   \_\_____\____|___|____/ 
+ SSRF Fuzzing Engine 🔴🟡🟢⚪
+═════════════════════════════════════════
+    🛡      Web  →  {}
+    💻     CLI  →  this terminal     
+─────────────────────────────────────────"#,
+    format!("http://{}", HOST));
 }
 
-fn print_menu(labs: &[LabSpec]) {
+fn print_menu(labs: &[Arc<Lab>]) {
     println!("\nWhich lab do you want to run?");
-    for (i, spec) in labs.iter().enumerate() {
-        println!("  {}) {}", i + 1, spec.meta.name);
-        if !spec.meta.description.is_empty() {
-            println!("             {}", spec.meta.description);
+    for (i, lab) in labs.iter().enumerate() {
+        let mark = match lab.state() {
+            LabState::Untouched => "⚪",
+            LabState::Running { .. } => "🟡",
+            LabState::Passed { .. } => "🟢",
+            LabState::Failed { .. } => "🔴",
+        };
+        println!("  {}) {} {}", i + 1, mark, lab.name());
+        if !lab.description().is_empty() {
+            println!("             {}", lab.description());
         }
     }
     println!("  {}) All labs", labs.len() + 1);

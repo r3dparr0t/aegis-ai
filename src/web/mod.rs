@@ -4,13 +4,13 @@ pub mod handlers;
 use std::path::PathBuf;
 use std::sync::Arc;
 use axum::{routing::{get, post}, Router};
-use crate::labs::LabContext;
+use crate::labs::{LabContext, Lab};
 
 #[derive(Clone)]
 pub struct AppCtx {
     pub ctx: Arc<LabContext>,
     pub state: state::SharedWebState,
-    pub labs: Arc<Vec<crate::labs::spec::LabSpec>>,
+    pub labs: Arc<Vec<Arc<Lab>>>,
     pub labs_dir: PathBuf,
 }
 

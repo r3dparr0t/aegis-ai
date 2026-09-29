@@ -1,15 +1,7 @@
 use std::sync::{Arc, Mutex};
 use serde::Serialize;
 use crate::events::{EngineObserver, Event};
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum LabStatus {
-    Idle,
-    Running { attempt: u32, max: u32 },
-    Passed { attempts: u32 },
-    Failed { attempts: u32 },
-}
+use crate::labs::RunLock;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct LogLine {
@@ -19,19 +11,15 @@ pub struct LogLine {
     pub kind: String,   // "info" / "pass" / "fail" / "state"
 }
 
+/// فقط لاگ زنده‌ی رویدادها. وضعیت هر Lab دیگه این‌جا نگهداری نمی‌شه —
+/// منبع حقیقتِ وضعیت خودِ Lab (`Lab::state()`) ـه، نه این ساختار.
 pub struct WebState {
-    pub statuses: Vec<LabStatus>,
     pub log: Vec<LogLine>,
-    pub active_lab: Option<usize>,
 }
 
 impl WebState {
-    pub fn new(n: usize) -> Self {
-        Self {
-            statuses: vec![LabStatus::Idle; n],
-            log: Vec::new(),
-            active_lab: None,
-        }
+    pub fn new() -> Self {
+        Self { log: Vec::new() }
     }
 
     pub fn push(&mut self, icon: &str, text: impl Into<String>, kind: &str) {
@@ -43,26 +31,28 @@ impl WebState {
     }
 }
 
+impl Default for WebState {
+    fn default() -> Self { Self::new() }
+}
+
 pub type SharedWebState = Arc<Mutex<WebState>>;
 
-/// Observer که eventها رو به WebState می‌ریزه.
+/// Observer که eventها رو به لاگ زنده‌ی WebState می‌ریزه، و برای
+/// `AttemptStarted` (که lab_id نداره) progress رو روی همون Labـی که
+/// `run_lock` بهش اشاره می‌کنه آپدیت می‌کنه.
 pub struct WebStateObserver {
     pub state: SharedWebState,
+    pub run_lock: RunLock,
 }
 
 impl EngineObserver for WebStateObserver {
     fn on_event(&self, event: Event) {
         let mut s = self.state.lock().unwrap();
-        let active = s.active_lab;
         match &event {
-            Event::LabStarted { lab_id, .. } => {
-                // active_lab رو از main.rs ست می‌کنیم؛ اما اگه از web اجرا شد،
-                // همین رو دوباره تأیید می‌کنیم.
-                let _ = lab_id;
-            }
+            Event::LabStarted { .. } => {}
             Event::AttemptStarted { attempt, max_attempts, .. } => {
-                if let Some(i) = active {
-                    s.statuses[i] = LabStatus::Running { attempt: *attempt, max: *max_attempts };
+                if let Some(lab) = self.run_lock.lock().unwrap().as_ref() {
+                    lab.set_progress(*attempt, *max_attempts);
                 }
                 s.push("🔁", format!("Attempt {}/{}", attempt, max_attempts), "state");
             }
@@ -85,14 +75,10 @@ impl EngineObserver for WebStateObserver {
             Event::EvaluationFailed { category, .. } => s.push("❌", format!("FAILED [{}]", category), "fail"),
             Event::LessonSaved { text, .. } => s.push("💾", text.chars().take(100).collect::<String>(), "info"),
             Event::LabFinished { success, attempts, .. } => {
-                if let Some(i) = active {
-                    s.statuses[i] = if *success {
-                        LabStatus::Passed { attempts: *attempts }
-                    } else {
-                        LabStatus::Failed { attempts: *attempts }
-                    };
-                }
-                s.active_lab = None;
+                // خودِ وضعیت Lab توسط Lab::finish (که runner.rs صدا می‌زنه) ست
+                // می‌شه — این‌جا فقط لاگ می‌کنیم.
+                let v = if *success { "✅" } else { "❌" };
+                s.push(v, format!("finished after {} attempt(s)", attempts), "state");
             }
             Event::LlmCalling => {}
             Event::Error { context, message, fatal } => {

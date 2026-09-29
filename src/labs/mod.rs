@@ -9,9 +9,11 @@ use crate::{
 };
 
 pub mod spec;
+pub mod lab;
 pub mod registry;
 pub mod runner;
 
+pub use lab::{Lab, LabState, RunLock};
 pub use spec::LabSpec;
 
 /// وابستگی‌های مشترک بین همه‌ی Labها.
@@ -20,42 +22,48 @@ pub struct LabContext {
     pub memory_repo: SqliteMemoryRepository,
     pub prefix: String,
     pub observer: crate::events::SharedObserver,
+    /// قفل global تک‌نفره — نگاه کن به توضیح `RunLock` در lab.rs.
+    pub run_lock: RunLock,
 }
 
+/// اجرای یه Lab و برگرداندن (success, attempts). همیشه event صادر می‌کنه.
+/// state خودِ lab این‌جا دست‌کاری نمی‌شه — مسئولیت caller (runner.rs) ـه.
 pub async fn run_task(
     engine: &ExecutionEngine,
     memory_repo: &SqliteMemoryRepository,
     observer: &crate::events::SharedObserver,
-    spec: &LabSpec,
+    lab: &Lab,
     system_prompt: &str,
     user_input: &str,
-) {
+) -> (bool, u32) {
     use crate::events::Event;
 
     observer.on_event(Event::LabStarted {
-        lab_id: spec.meta.id.clone(),
-        lab_name: spec.meta.name.clone(),
-        task_type: spec.task.task_type.clone(),
+        lab_id: lab.id().to_string(),
+        lab_name: lab.name().to_string(),
+        task_type: lab.spec.task.task_type.clone(),
     });
 
     let (success, attempts) = match engine.execute(system_prompt, user_input).await {
         Ok((execution_id, _res, attempts)) => {
-            write_report(memory_repo, &execution_id, &spec.meta.name).await;
+            write_report(memory_repo, &execution_id, lab.id(), lab.name()).await;
             (true, attempts)
         }
         Err(crate::domain::EngineError::MaxAttemptsExceeded { execution_id, attempts }) => {
-            write_report(memory_repo, &execution_id, &spec.meta.name).await;
+            write_report(memory_repo, &execution_id, lab.id(), lab.name()).await;
             (false, attempts)
         }
         Err(_) => (false, 0),
     };
 
     observer.on_event(Event::LabFinished {
-        lab_id: spec.meta.id.clone(),
-        lab_name: spec.meta.name.clone(),
+        lab_id: lab.id().to_string(),
+        lab_name: lab.name().to_string(),
         success,
         attempts,
     });
+
+    (success, attempts)
 }
 
 /// یه برچسب انسانی (که ممکنه فاصله، اسلش، خط تیره، پرانتز و ... داشته باشه) رو
@@ -72,7 +80,6 @@ fn slugify(label: &str) -> String {
         })
         .collect();
 
-    // پاک‌سازی underscoreهای پشت‌سرهم و لبه‌ها
     let mut out = String::new();
     let mut last_was_underscore = false;
     for c in slug.chars() {
@@ -92,7 +99,12 @@ fn slugify(label: &str) -> String {
     out.chars().take(60).collect()
 }
 
-async fn write_report(memory_repo: &SqliteMemoryRepository, execution_id: &str, label: &str) {
+async fn write_report(
+    memory_repo: &SqliteMemoryRepository,
+    execution_id: &str,
+    lab_id: &str,
+    label: &str,
+) {
     let report = match memory_repo.get_execution_report(execution_id).await {
         Ok(r) => r,
         Err(e) => {
@@ -105,7 +117,7 @@ async fn write_report(memory_repo: &SqliteMemoryRepository, execution_id: &str, 
         return;
     }
 
-    let base_path = format!("reports/{}_{}", slugify(label), execution_id);
+    let base_path = format!("reports/{}_{}", lab_id, execution_id);
 
     match serde_json::to_string_pretty(&report) {
         Ok(json) => {

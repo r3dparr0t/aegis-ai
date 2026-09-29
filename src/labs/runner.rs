@@ -1,106 +1,112 @@
+// src/labs/runner.rs
 use std::sync::Arc;
-use uuid::Uuid;
 
 use crate::{
-    domain::{Evaluator, LlmProvider},
-    engine::{EngineConfig, ExecutionEngine},
-    evaluator::{FlagEvaluator, TimeDelayEvaluator},
-    executor::HttpTargetExecutor,
+    domain::LlmProvider,
+    engine::ExecutionEngine,
     input::prompt,
     provider::OllamaProvider,
     selection::choose_ollama_model,
 };
 
-use super::{spec::{EvaluatorSpec, LabSpec, InternalTargetSpec}, run_task, LabContext};
+use super::{lab::Lab, run_task, LabContext};
 
-/// goal: اگه Some باشه، به‌جای پرسیدن از کاربر استفاده می‌شه (برای وب).
-pub async fn run_lab(ctx: &LabContext, spec: &LabSpec, goal: Option<String>) {
-    let mut task_type = spec.task.task_type.clone();
-    if spec.task.fresh_task_type {
-        let suffix = &Uuid::new_v4().simple().to_string()[..8];
-        task_type = format!("{}_{}", task_type, suffix);
-        println!("🆔 Fresh task_type: {}", task_type);
-    }
-
-    let provider: Arc<dyn LlmProvider> = if spec.options.allow_bigger_model {
-        let use_bigger = prompt(
-            "Use a different (bigger) Ollama model just for this lab? [y/N]",
-            "n",
+/// نسخه‌ی راحت برای CLI: خودش سعی می‌کنه قفل global رو بگیره (`Lab::try_start`)
+/// و اگه یه Lab دیگه در حال اجراست، صرف‌نظر می‌کنه.
+///
+/// از وب استفاده نکن — چون HTTP handler باید بلافاصله (قبل از `tokio::spawn`)
+/// بدونه که قفل گرفته شده یا نه تا بتونه ۲۰۰/۴۰۹ درست برگردونه. برای وب از
+/// `Lab::try_start` مستقیم در handler + `run_locked` استفاده کن.
+pub async fn run_lab(ctx: &LabContext, lab: &Arc<Lab>, goal: Option<String>) {
+    if !Lab::try_start(lab, &ctx.run_lock) {
+        eprintln!(
+            "⚠️  Lab '{}' skipped — another lab is already running.",
+            lab.id()
         );
-        if use_bigger.eq_ignore_ascii_case("y") {
-            let url = prompt("Ollama base URL", "http://localhost:11434");
-            let default_model = if spec.options.default_bigger_model.is_empty() {
-                "qwen2.5:7b"
-            } else {
-                &spec.options.default_bigger_model
-            };
-            let model = choose_ollama_model(&url, default_model).await;
-            Arc::new(OllamaProvider::new(url, model))
-        } else {
-            ctx.provider.clone()
-        }
-    } else {
-        ctx.provider.clone()
-    };
+        return;
+    }
+    run_locked(ctx, lab, goal).await;
+}
 
-    let (base, path) = match spec.target.split_base_path() {
-        Some(bp) => bp,
-        None => {
-            eprintln!("❌ Invalid target.url in lab '{}': {}", spec.meta.id, spec.target.url);
-            return;
+/// اجرای واقعی، با این فرض که قفل global از قبل گرفته شده (یعنی یه جای دیگه
+/// `Lab::try_start` صدا زده و `true` گرفته). این تابع در هر حالتی (موفقیت،
+/// شکست، یا خطای ساخت executor) حتماً `Lab::finish` رو صدا می‌زنه — وگرنه
+/// قفل global برای همیشه گیر می‌کنه و هیچ Lab دیگه‌ای، نه از CLI و نه از وب،
+/// نمی‌تونه اجرا بشه.
+pub async fn run_locked(ctx: &LabContext, lab: &Arc<Lab>, goal: Option<String>) {
+    let (success, attempts) = match execute_lab(ctx, lab, goal).await {
+        Ok(r) => r,
+        Err(msg) => {
+            eprintln!("❌ Lab '{}' failed to start: {}", lab.id(), msg);
+            (false, 0)
         }
     };
 
-    let executor = Arc::new(HttpTargetExecutor::new(base, vec![path.as_str()]));
+    Lab::finish(lab, &ctx.run_lock, success, attempts);
+}
 
-    let evaluator: Arc<dyn Evaluator> = match &spec.evaluator {
-        EvaluatorSpec::Flag { marker } => Arc::new(FlagEvaluator::new(marker.clone())),
-        EvaluatorSpec::TimeDelay { threshold_ms } => {
-            Arc::new(TimeDelayEvaluator::new(*threshold_ms))
-        }
-    };
+async fn execute_lab(
+    ctx: &LabContext,
+    lab: &Lab,
+    goal: Option<String>,
+) -> Result<(bool, u32), String> {
+    let from_cli = goal.is_none();
+    let provider = pick_provider(ctx, lab, from_cli).await;
+    let executor = lab.build_executor()?;
+    let evaluator = lab.build_evaluator();
+    let task_type = lab.effective_task_type();
+    let config = lab.build_config(task_type);
 
-    let filled_prompt = fill_target_placeholders(&spec.system_prompt, &spec.internal_target);
-    let filled_goal   = fill_target_placeholders(&spec.task.default_goal, &spec.internal_target);
-
-    let system_prompt = format!("{}\n\n{}", ctx.prefix, filled_prompt);
+    let system_prompt = lab.render_system_prompt(&ctx.prefix);
     let user_input = match goal {
         Some(g) => g,
-        None => prompt(&format!("Goal for {}", spec.meta.name), &filled_goal),
-    };
-
-    let config = EngineConfig {
-        max_attempts: spec.max_attempts,
-        task_type,
-        expected_body_key: if spec.target.body_key.is_empty() {
-            None
-        } else {
-            Some(spec.target.body_key.clone())
-        },
+        None => prompt(&format!("Goal for {}", lab.name()), &lab.default_goal()),
     };
 
     let engine = ExecutionEngine::new(
         provider,
         executor,
         evaluator,
-        ctx.memory_repo.clone(),   // ← clone ارزون
+        ctx.memory_repo.clone(),
         config,
     )
     .with_observer(ctx.observer.clone());
 
-    run_task(
+    Ok(run_task(
         &engine,
         &ctx.memory_repo,
         &ctx.observer,
-        spec,
+        lab,
         &system_prompt,
         &user_input,
-    ).await;
+    )
+    .await)
 }
 
-fn fill_target_placeholders(text: &str, target: &InternalTargetSpec) -> String {
-    text.replace("{{target_url}}", &target.url())
-        .replace("{{target_host}}", &target.host)
-        .replace("{{target_port}}", &target.port.to_string())
-        .replace("{{target_path}}", &target.path)
+/// انتخاب provider: اگه lab گزینه‌ی «مدل بزرگ‌تر» رو داشته باشه **و** از CLI
+/// اجرا بشه (from_cli == true)، از کاربر بپرس؛ وگرنه provider پیش‌فرض context.
+///
+/// این شرط باگ قدیمی رو حل می‌کنه: وقتی از وب اجرا می‌شه، هیچ‌وقت نباید
+/// prompt روی stdin بزنه چون ترمینالی برای جواب‌دادن وجود نداره.
+async fn pick_provider(ctx: &LabContext, lab: &Lab, from_cli: bool) -> Arc<dyn LlmProvider> {
+    if !lab.spec.options.allow_bigger_model || !from_cli {
+        return ctx.provider.clone();
+    }
+
+    let use_bigger = prompt(
+        "Use a different (bigger) Ollama model just for this lab? [y/N]",
+        "n",
+    );
+    if !use_bigger.eq_ignore_ascii_case("y") {
+        return ctx.provider.clone();
+    }
+
+    let url = prompt("Ollama base URL", "http://localhost:11434");
+    let default_model = if lab.spec.options.default_bigger_model.is_empty() {
+        "qwen2.5:7b"
+    } else {
+        &lab.spec.options.default_bigger_model
+    };
+    let model = choose_ollama_model(&url, default_model).await;
+    Arc::new(OllamaProvider::new(url, model))
 }

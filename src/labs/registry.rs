@@ -1,8 +1,11 @@
 // src/labs/registry.rs
 use std::fs;
+use std::sync::Arc;
+
+use super::lab::Lab;
 use super::spec::LabSpec;
 
-pub fn load_labs(dir: &str) -> Result<Vec<LabSpec>, String> {
+pub fn load_labs(dir: &str) -> Result<Vec<Arc<Lab>>, String> {
     let entries = fs::read_dir(dir)
         .map_err(|e| format!("Cannot read labs directory '{}': {}", dir, e))?;
 
@@ -28,5 +31,6 @@ pub fn load_labs(dir: &str) -> Result<Vec<LabSpec>, String> {
 
     labs.retain(|l| l.meta.enabled);
     labs.sort_by_key(|l| l.meta.order);
-    Ok(labs)
+
+    Ok(labs.into_iter().map(|s| Arc::new(Lab::new(s))).collect())
 }
