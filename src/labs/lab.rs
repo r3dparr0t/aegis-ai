@@ -1,5 +1,5 @@
 // src/labs/lab.rs
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use serde::Serialize;
 
@@ -10,21 +10,13 @@ use crate::{
     executor::HttpTargetExecutor,
 };
 
-use super::spec::{EvaluatorSpec, InternalTargetSpec, LabSpec};
+use super::spec::{EvaluatorSpec, InternalTargetSpec, LabOptions, LabSpec};
 
-/// قفل global تک‌نفره: فقط یک Lab در کل برنامه (چه از CLI چه از وب) می‌تونه
-/// هم‌زمان در حال اجرا باشه. مقدارش، اگه Some باشه، همون Labیه که الان داره
-/// اجرا می‌شه.
-///
-/// چرا global و نه per-lab؟ چون خودِ Engine حین اجرا رخدادهایی مثل
-/// `AttemptStarted` / `PayloadParsed` / ... صادر می‌کنه که هیچ‌کدوم `lab_id`
-/// ندارن (فقط `LabStarted`/`LabFinished` دارن). اگه دو تا Lab متفاوت هم‌زمان
-/// اجرا بشن، این رخدادهای میانی معلوم نیست مال کدوم لبن — لاگ و progress قاطی
-/// می‌شه. پس تا وقتی event stream این شکلیه، باید فقط یک اجرای فعال در کل
-/// برنامه وجود داشته باشه؛ قفل per-lab (`Lab` خودش) این رو تضمین نمی‌کنه.
+/// قفل global تک‌نفره: فقط یک Lab در کل برنامه می‌تونه هم‌زمان در حال اجرا باشه.
+/// (نگاه کن به توضیح مفصل‌تر در نسخه‌ی قبلی — رخدادهای بین‌راهی lab_id ندارن،
+/// پس قفل باید global باشه نه per-lab.)
 pub type RunLock = Arc<Mutex<Option<Arc<Lab>>>>;
 
-/// وضعیت runtime یک Lab. با اجرا/اتمام تغییر می‌کنه.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LabState {
@@ -45,45 +37,73 @@ impl LabState {
     }
 }
 
-/// یک Lab = spec (immutable، از YAML) + state (runtime، mutable) + متدهایی
-/// که از روی spec، اجزای اجرا (executor، evaluator، config، prompt) رو می‌سازن.
+/// یک Lab = spec (پشت RwLock، چون از پنل وب قابل ادیت/جایگزینیه) + state (runtime).
 pub struct Lab {
-    pub spec: LabSpec,
+    spec: RwLock<LabSpec>,
     state: Mutex<LabState>,
 }
 
 impl Lab {
     pub fn new(spec: LabSpec) -> Self {
         Self {
-            spec,
+            spec: RwLock::new(spec),
             state: Mutex::new(LabState::Untouched),
         }
     }
 
-    // ─── Accessors ───
+    // ─── Spec (snapshot-based، چون قابل تعویضه) ───
 
-    pub fn id(&self) -> &str {
-        &self.spec.meta.id
+    pub fn spec(&self) -> LabSpec {
+        self.spec.read().unwrap().clone()
     }
 
-    pub fn name(&self) -> &str {
-        &self.spec.meta.name
+    pub fn id(&self) -> String {
+        self.spec.read().unwrap().meta.id.clone()
     }
 
-    pub fn description(&self) -> &str {
-        &self.spec.meta.description
+    pub fn name(&self) -> String {
+        self.spec.read().unwrap().meta.name.clone()
     }
 
-    pub fn url(&self) -> &str {
-        &self.spec.target.url
+    pub fn description(&self) -> String {
+        self.spec.read().unwrap().meta.description.clone()
+    }
+
+    pub fn url(&self) -> String {
+        self.spec.read().unwrap().target.url.clone()
     }
 
     pub fn internal_url(&self) -> String {
-        self.spec.internal_target.url()
+        self.spec.read().unwrap().internal_target.url()
     }
 
     pub fn max_attempts(&self) -> u32 {
-        self.spec.max_attempts
+        self.spec.read().unwrap().max_attempts
+    }
+
+    pub fn options(&self) -> LabOptions {
+        self.spec.read().unwrap().options.clone()
+    }
+
+    /// جایگزین‌کردن spec با نسخه‌ی جدید (از پنل وب، بعد از ادیت YAML).
+    /// - اگه در حال اجرا باشه → رد (یه TOCTOU خفیف اینجا هست: بین این چک و
+    ///   نوشتن واقعی، تئوریاً می‌شه یه اجرا از CLI شروع بشه؛ برای این اپ که
+    ///   ادیت‌ها دستی و کم‌تعدادن، اهمیتی نداره — ولی اگه لازم شد، باید
+    ///   `is_running` و نوشتن رو زیر یک قفل مشترک با `try_start` برد)
+    /// - اگه id عوض شده باشه → رد (وگرنه فایل YAML روی دیسک گم می‌شه)
+    pub fn replace_spec(&self, new_spec: LabSpec) -> Result<(), String> {
+        if self.is_running() {
+            return Err("cannot edit a running lab".into());
+        }
+        let old_id = self.spec.read().unwrap().meta.id.clone();
+        if new_spec.meta.id != old_id {
+            return Err(format!(
+                "lab id cannot change on save: '{}' → '{}'",
+                old_id, new_spec.meta.id
+            ));
+        }
+        *self.spec.write().unwrap() = new_spec;
+        Ok(())
     }
 
     // ─── State ───
@@ -96,12 +116,6 @@ impl Lab {
         matches!(self.state(), LabState::Running { .. })
     }
 
-    /// اگه *هیچ* Labی (نه فقط همین یکی) در حال اجرا نباشه، `run_lock` global رو
-    /// می‌گیره و `true` برمی‌گردونه. وگرنه `false` — caller باید صرف‌نظر کنه.
-    ///
-    /// باید `Arc<Lab>` بگیره (نه `&self`) چون لازمه یه اشاره‌ی مالکیت‌دار به
-    /// همین Lab رو داخل قفل ذخیره کنه تا `finish` بعداً بتونه مطمئن بشه داره
-    /// قفلِ *خودش* رو آزاد می‌کنه، نه قفلی که یه Lab دیگه بین این دو تا گرفته.
     pub fn try_start(self_arc: &Arc<Lab>, run_lock: &RunLock) -> bool {
         let mut guard = run_lock.lock().unwrap();
         if guard.is_some() {
@@ -115,7 +129,6 @@ impl Lab {
         true
     }
 
-    /// آپدیت شماره‌ی attempt جاری — فقط وقتی واقعاً Running باشه اثر می‌کنه.
     pub fn set_progress(&self, attempt: u32, max: u32) {
         let mut s = self.state.lock().unwrap();
         if matches!(*s, LabState::Running { .. }) {
@@ -123,8 +136,6 @@ impl Lab {
         }
     }
 
-    /// پایان اجرا. `success = true` → Passed، وگرنه Failed. قفل global رو هم
-    /// آزاد می‌کنه — ولی فقط اگه هنوز مال همین Lab باشه (نه یه اجرای بعدی).
     pub fn finish(self_arc: &Arc<Lab>, run_lock: &RunLock, success: bool, attempts: u32) {
         *self_arc.state.lock().unwrap() = if success {
             LabState::Passed { attempts }
@@ -140,18 +151,16 @@ impl Lab {
         }
     }
 
-    /// برگرداندن به حالت اولیه (وقتی کاربر بخواد وضعیت رو دستی ریست کنه).
-    /// این کاری با `run_lock` نداره — فقط برای Labهایی که در حال اجرا نیستن.
     pub fn reset(&self) {
         *self.state.lock().unwrap() = LabState::Untouched;
     }
 
     // ─── Runtime construction ───
 
-    /// task_type نهایی — اگه `fresh_task_type` باشه، یه پسوند یکتا اضافه می‌شه.
     pub fn effective_task_type(&self) -> String {
-        let base = &self.spec.task.task_type;
-        if self.spec.task.fresh_task_type {
+        let spec = self.spec.read().unwrap();
+        let base = &spec.task.task_type;
+        if spec.task.fresh_task_type {
             let suffix = &uuid::Uuid::new_v4().simple().to_string()[..8];
             format!("{}_{}", base, suffix)
         } else {
@@ -159,19 +168,18 @@ impl Lab {
         }
     }
 
-    /// executor برای این lab.
     pub fn build_executor(&self) -> Result<Arc<HttpTargetExecutor>, String> {
-        let (base, path) = self
-            .spec
+        let spec = self.spec.read().unwrap();
+        let (base, path) = spec
             .target
             .split_base_path()
-            .ok_or_else(|| format!("invalid target.url: {}", self.spec.target.url))?;
+            .ok_or_else(|| format!("invalid target.url: {}", spec.target.url))?;
         Ok(Arc::new(HttpTargetExecutor::new(base, vec![path.as_str()])))
     }
 
-    /// evaluator برای این lab (بر اساس `spec.evaluator`).
     pub fn build_evaluator(&self) -> Arc<dyn Evaluator> {
-        match &self.spec.evaluator {
+        let spec = self.spec.read().unwrap();
+        match &spec.evaluator {
             EvaluatorSpec::Flag { marker } => Arc::new(FlagEvaluator::new(marker.clone())),
             EvaluatorSpec::TimeDelay { threshold_ms } => {
                 Arc::new(TimeDelayEvaluator::new(*threshold_ms))
@@ -179,28 +187,28 @@ impl Lab {
         }
     }
 
-    /// EngineConfig مناسب این lab.
     pub fn build_config(&self, task_type: String) -> EngineConfig {
+        let spec = self.spec.read().unwrap();
         EngineConfig {
-            max_attempts: self.spec.max_attempts,
+            max_attempts: spec.max_attempts,
             task_type,
-            expected_body_key: if self.spec.target.body_key.is_empty() {
+            expected_body_key: if spec.target.body_key.is_empty() {
                 None
             } else {
-                Some(self.spec.target.body_key.clone())
+                Some(spec.target.body_key.clone())
             },
         }
     }
 
-    /// system prompt نهایی — prefix (از context) + placeholderهای پر‌شده.
     pub fn render_system_prompt(&self, prefix: &str) -> String {
-        let filled = fill(&self.spec.system_prompt, &self.spec.internal_target);
+        let spec = self.spec.read().unwrap();
+        let filled = fill(&spec.system_prompt, &spec.internal_target);
         format!("{}\n\n{}", prefix, filled)
     }
 
-    /// goal پیش‌فرض lab (با placeholderهای پر‌شده).
     pub fn default_goal(&self) -> String {
-        fill(&self.spec.task.default_goal, &self.spec.internal_target)
+        let spec = self.spec.read().unwrap();
+        fill(&spec.task.default_goal, &spec.internal_target)
     }
 }
 

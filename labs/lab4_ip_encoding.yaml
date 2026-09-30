@@ -25,7 +25,7 @@ evaluator:
   marker: "FLAG{"
 
 options:
-  allow_bigger_model: true
+  allow_bigger_model: false
   default_bigger_model: "qwen2.5:7b"
 
 system_prompt: |

@@ -11,12 +11,6 @@ use crate::{
 
 use super::{lab::Lab, run_task, LabContext};
 
-/// نسخه‌ی راحت برای CLI: خودش سعی می‌کنه قفل global رو بگیره (`Lab::try_start`)
-/// و اگه یه Lab دیگه در حال اجراست، صرف‌نظر می‌کنه.
-///
-/// از وب استفاده نکن — چون HTTP handler باید بلافاصله (قبل از `tokio::spawn`)
-/// بدونه که قفل گرفته شده یا نه تا بتونه ۲۰۰/۴۰۹ درست برگردونه. برای وب از
-/// `Lab::try_start` مستقیم در handler + `run_locked` استفاده کن.
 pub async fn run_lab(ctx: &LabContext, lab: &Arc<Lab>, goal: Option<String>) {
     if !Lab::try_start(lab, &ctx.run_lock) {
         eprintln!(
@@ -28,11 +22,6 @@ pub async fn run_lab(ctx: &LabContext, lab: &Arc<Lab>, goal: Option<String>) {
     run_locked(ctx, lab, goal).await;
 }
 
-/// اجرای واقعی، با این فرض که قفل global از قبل گرفته شده (یعنی یه جای دیگه
-/// `Lab::try_start` صدا زده و `true` گرفته). این تابع در هر حالتی (موفقیت،
-/// شکست، یا خطای ساخت executor) حتماً `Lab::finish` رو صدا می‌زنه — وگرنه
-/// قفل global برای همیشه گیر می‌کنه و هیچ Lab دیگه‌ای، نه از CLI و نه از وب،
-/// نمی‌تونه اجرا بشه.
 pub async fn run_locked(ctx: &LabContext, lab: &Arc<Lab>, goal: Option<String>) {
     let (success, attempts) = match execute_lab(ctx, lab, goal).await {
         Ok(r) => r,
@@ -83,13 +72,9 @@ async fn execute_lab(
     .await)
 }
 
-/// انتخاب provider: اگه lab گزینه‌ی «مدل بزرگ‌تر» رو داشته باشه **و** از CLI
-/// اجرا بشه (from_cli == true)، از کاربر بپرس؛ وگرنه provider پیش‌فرض context.
-///
-/// این شرط باگ قدیمی رو حل می‌کنه: وقتی از وب اجرا می‌شه، هیچ‌وقت نباید
-/// prompt روی stdin بزنه چون ترمینالی برای جواب‌دادن وجود نداره.
 async fn pick_provider(ctx: &LabContext, lab: &Lab, from_cli: bool) -> Arc<dyn LlmProvider> {
-    if !lab.spec.options.allow_bigger_model || !from_cli {
+    let opts = lab.options();
+    if !opts.allow_bigger_model || !from_cli {
         return ctx.provider.clone();
     }
 
@@ -102,10 +87,10 @@ async fn pick_provider(ctx: &LabContext, lab: &Lab, from_cli: bool) -> Arc<dyn L
     }
 
     let url = prompt("Ollama base URL", "http://localhost:11434");
-    let default_model = if lab.spec.options.default_bigger_model.is_empty() {
+    let default_model = if opts.default_bigger_model.is_empty() {
         "qwen2.5:7b"
     } else {
-        &lab.spec.options.default_bigger_model
+        &opts.default_bigger_model
     };
     let model = choose_ollama_model(&url, default_model).await;
     Arc::new(OllamaProvider::new(url, model))

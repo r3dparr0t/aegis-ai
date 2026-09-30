@@ -40,6 +40,7 @@ pub async fn get_lab(
         return (StatusCode::NOT_FOUND, Json(json!({"error": "not found"}))).into_response();
     }
     let lab = &app.labs[idx];
+    let spec = lab.spec();
     Json(json!({
         "index": idx,
         "id": lab.id(),
@@ -48,8 +49,8 @@ pub async fn get_lab(
         "url": lab.url(),
         "target": lab.internal_url(),
         "max_attempts": lab.max_attempts(),
-        "system_prompt": lab.spec.system_prompt,
-        "default_goal": lab.spec.task.default_goal,
+        "system_prompt": spec.system_prompt,
+        "default_goal": spec.task.default_goal,
         "status": lab.state(),
         "running": lab.is_running(),
     })).into_response()
@@ -74,25 +75,53 @@ pub struct SaveYaml {
     pub content: String,
 }
 
+/// ذخیره‌ی YAML:
+/// ۱. parse کن (رد اگه نامعتبر)
+/// ۲. چک کن lab در حال اجرا نباشه + id عوض نشده
+/// ۳. روی دیسک بنویس
+/// ۴. در حافظه هم اعمال کن — تا تغییرات فوراً اثر کنن، بدون ری‌استارت برنامه
 pub async fn save_yaml(
     State(app): State<AppCtx>,
     Path(idx): Path<usize>,
     Json(payload): Json<SaveYaml>,
 ) -> impl IntoResponse {
-    if let Err(e) = serde_yaml::from_str::<crate::labs::spec::LabSpec>(&payload.content) {
-        return (StatusCode::BAD_REQUEST, format!("invalid YAML: {}", e)).into_response();
-    }
+    let new_spec: crate::labs::spec::LabSpec = match serde_yaml::from_str(&payload.content) {
+        Ok(s) => s,
+        Err(e) => {
+            return (StatusCode::BAD_REQUEST, format!("invalid YAML: {}", e)).into_response();
+        }
+    };
+
     if idx >= app.labs.len() {
         return (StatusCode::NOT_FOUND, "not found").into_response();
     }
-    // نکته: این فقط فایل YAML رو روی دیسک آپدیت می‌کنه. چون Lab.spec از یه
-    // بارگذاری قبلی ساخته شده و immutable ـه، این تغییر بعد از ری‌استارت
-    // برنامه اعمال می‌شه، نه فوری روی همین Lab در حافظه.
-    let path = app.labs_dir.join(format!("{}.yaml", app.labs[idx].id()));
-    match std::fs::write(&path, payload.content) {
-        Ok(_) => (StatusCode::OK, "saved").into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("write: {}", e)).into_response(),
+    let lab = &app.labs[idx];
+
+    if lab.is_running() {
+        return (StatusCode::CONFLICT, "cannot edit a running lab").into_response();
     }
+    let old_id = lab.id();
+    if new_spec.meta.id != old_id {
+        return (
+            StatusCode::CONFLICT,
+            format!(
+                "lab id cannot change on save: '{}' → '{}'",
+                old_id, new_spec.meta.id
+            ),
+        )
+            .into_response();
+    }
+
+    let path = app.labs_dir.join(format!("{}.yaml", old_id));
+    if let Err(e) = std::fs::write(&path, &payload.content) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, format!("write: {}", e)).into_response();
+    }
+
+    if let Err(e) = lab.replace_spec(new_spec) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response();
+    }
+
+    (StatusCode::OK, "saved").into_response()
 }
 
 pub async fn run_lab(
@@ -103,12 +132,11 @@ pub async fn run_lab(
         return (StatusCode::NOT_FOUND, "not found").into_response();
     }
 
-    let lab = app.labs[idx].clone(); // Arc<Lab>
+    let lab = app.labs[idx].clone();
 
     // قفل global رو همین‌جا، هم‌زمان با پاسخ HTTP، می‌گیریم — نه داخل تسک
     // spawn‌شده — چون باید بلافاصله بدونیم گرفتیمش یا نه تا 200/409 درست
-    // برگردونیم. اگه این‌جا فقط `is_running()` رو چک می‌کردیم (بدون گرفتن
-    // قفل)، دو تا request هم‌زمان می‌تونستن هر دو از این چک رد بشن.
+    // برگردونیم.
     if !Lab::try_start(&lab, &app.ctx.run_lock) {
         return (StatusCode::CONFLICT, "another lab is already running").into_response();
     }
@@ -117,9 +145,6 @@ pub async fn run_lab(
     let default_goal = lab.default_goal();
 
     tokio::spawn(async move {
-        // قفل از قبل گرفته شده، پس از `run_locked` استفاده می‌کنیم نه
-        // `runner::run_lab` (که خودش دوباره try_start می‌زنه و چون قفل قبلاً
-        // گرفته شده، همیشه false می‌گیره و اجرا رو skip می‌کنه).
         runner::run_locked(&ctx, &lab, Some(default_goal)).await;
     });
 
@@ -131,13 +156,13 @@ pub async fn list_reports(
     Path(idx): Path<usize>,
 ) -> impl IntoResponse {
     if idx >= app.labs.len() { return Json(json!([])); }
-    let lab_id = app.labs[idx].id().to_string();
+    let lab_id = app.labs[idx].id();
     let dir = PathBuf::from("reports");
     let mut reports = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for e in entries.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
-            if !name.starts_with(&lab_id) || !name.ends_with(".json") { continue; }
+            if !name.starts_with(&format!("{}_", lab_id)) || !name.ends_with(".json") { continue; }
             let mtime = e.metadata().ok()
                 .and_then(|m| m.modified().ok())
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
@@ -170,4 +195,12 @@ pub async fn get_report(
         }
     }
     (StatusCode::NOT_FOUND, Json(json!({"error": "not found"}))).into_response()
+}
+
+/// آخرین چند خط لاگ زنده (برای پنل وب). قدیمی‌ترین اول.
+pub async fn get_log(State(app): State<AppCtx>) -> impl IntoResponse {
+    let s = app.state.lock().unwrap();
+    let n = s.log.len();
+    let start = n.saturating_sub(200);
+    Json(json!(s.log[start..]))
 }
