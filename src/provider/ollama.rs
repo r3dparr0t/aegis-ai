@@ -53,6 +53,15 @@ impl OllamaProvider {
 
 #[async_trait]
 impl LlmProvider for OllamaProvider {
+    fn info(&self) -> crate::domain::ProviderInfo {
+        crate::domain::ProviderInfo {
+            kind: "ollama",
+            model: self.model_name.clone(),
+            base_url: self.base_url.clone(),
+            is_local: true,
+        }
+    }
+
     async fn generate(&self, request: &LlmRequest) -> Result<LlmResponse, LlmError> {
         let endpoint = format!("{}/api/generate", self.base_url.trim_end_matches('/'));
 

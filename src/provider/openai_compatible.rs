@@ -88,6 +88,15 @@ struct ChatUsage {
 
 #[async_trait]
 impl LlmProvider for OpenAiCompatibleProvider {
+    fn info(&self) -> crate::domain::ProviderInfo {
+        crate::domain::ProviderInfo {
+            kind: "openai_compatible",
+            model: self.model_name.clone(),
+            base_url: self.base_url.clone(),
+            is_local: false,
+        }
+    }
+
     async fn generate(&self, request: &LlmRequest) -> Result<LlmResponse, LlmError> {
         let endpoint = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
 

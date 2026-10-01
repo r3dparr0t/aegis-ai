@@ -5,8 +5,7 @@ use sqlx::sqlite::SqlitePoolOptions;
 
 use aegis_ai::{
     events::{ConsoleObserver, SharedObserver},
-    input::prompt,
-    labs::{self, runner, Lab, LabContext, LabState},
+    labs::{self, LabContext},
     memory::SqliteMemoryRepository,
     selection::select_provider,
     selection::SelectedProvider,
@@ -72,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // LabContext
     let ctx = Arc::new(LabContext {
-        provider,
+        provider: std::sync::RwLock::new(provider),
         memory_repo,
         prefix,
         observer: composite,
@@ -86,7 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         labs: labs.clone(),
         labs_dir: labs_dir.clone(),
     };
-    print_brand();
+    print_banner();
 
     let _ = open::that(&url);
 
@@ -101,33 +100,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // یه لحظه صبر کن تا سرور بالا بیاد
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
-    // ─── CLI ───
-    print_menu(&labs);
-    let choice = prompt("Choice", &(labs.len() + 1).to_string());
-
-    let all_choice = (labs.len() + 1).to_string();
-    if choice == all_choice {
-        for lab in labs.iter() {
-            runner::run_lab(&ctx, lab, None).await;
-        }
-    } else if let Ok(idx) = choice.parse::<usize>() {
-        if idx >= 1 && idx <= labs.len() {
-            runner::run_lab(&ctx, &labs[idx - 1], None).await;
-        } else {
-            eprintln!("❌ Invalid lab index: {}", idx);
-        }
-    } else if let Some(lab) = labs.iter().find(|l| l.id() == choice) {
-        runner::run_lab(&ctx, lab, None).await;
-    } else {
-        eprintln!("❌ Unknown choice: {}", choice);
-    }
-    println!("\n✓ Done. Web panel still live at {}. Ctrl+C to exit.", url);
-    // منتظر بمون تا کاربر Ctrl+C بزنه
+    // ─── CLI (اختیاری) ───
+    // cli(labs.clone(), ctx.clone());
+    // منتظر بمون تا Ctrl+C بزنه
+    // فقط منتظر بمون تا Ctrl+C بزنه
     tokio::signal::ctrl_c().await.ok();
+    println!("\n  👋 Shutting down...");
     Ok(())
 }
 
-fn print_brand() {
+
+fn print_banner() {
     println!(
         r#"
     _    _____ ____ ___ ____  
@@ -136,13 +119,12 @@ fn print_brand() {
  / ___ \| |__| |_| || | ___) |
 /_/   \_\_____\____|___|____/ 
  SSRF Fuzzing Engine 🔴🟡🟢⚪
-═════════════════════════════════════════
-    🛡      Web  →  {}
-    💻     CLI  →  this terminal     
-─────────────────────────────────────────"#,
-    format!("http://{}", HOST));
+═════════════════════════════════════════"#);
+    println!("  🛡 Web panel live at {}", format!("http://{}", HOST));
+    println!("  ✓ Ctrl+C to exit\n");
 }
 
+/* 
 fn print_menu(labs: &[Arc<Lab>]) {
     println!("\nWhich lab do you want to run?");
     for (i, lab) in labs.iter().enumerate() {
@@ -160,3 +142,40 @@ fn print_menu(labs: &[Arc<Lab>]) {
     println!("  {}) All labs", labs.len() + 1);
     println!("  (or type a lab id, e.g. 'lab1_fetch')");
 }
+
+fn cli(labs_for_cli: Arc<Vec<Arc<Lab>>>, ctx_for_cli:Arc<LabContext> ){
+    // کاربر می‌تونه از CLI هم استفاده کنه، ولی پیش‌فرض اینه که فقط
+    // web panel فعاله. اگه Enter بزنه، CLI ادامه نمی‌ده — یه تسک
+    // جدا تو background منتظر Enter می‌مونه.
+    tokio::spawn(async move {
+        tokio::task::spawn_blocking(move || {
+            println!();
+            println!("  ─────────────────────────────────────────");
+            println!("  💻  CLI mode — press Enter to enable");
+            println!("  ─────────────────────────────────────────");
+            let mut buf = String::new();
+            std::io::stdin().read_line(&mut buf).ok();
+
+            // کاربر Enter زد → CLI فعال شه
+            let rt = tokio::runtime::Handle::current();
+            rt.block_on(async move {
+                print_menu(&labs_for_cli);
+                let choice = prompt("Choice", &(labs_for_cli.len() + 1).to_string());
+                let all_choice = (labs_for_cli.len() + 1).to_string();
+                if choice == all_choice {
+                    for lab in labs_for_cli.iter() {
+                        runner::run_lab(&ctx_for_cli, lab, None).await;
+                    }
+                } else if let Ok(idx) = choice.parse::<usize>() {
+                    if idx >= 1 && idx <= labs_for_cli.len() {
+                        runner::run_lab(&ctx_for_cli, &labs_for_cli[idx - 1], None).await;
+                    }
+                } else if let Some(lab) = labs_for_cli.iter().find(|l| l.id() == choice) {
+                    runner::run_lab(&ctx_for_cli, lab, None).await;
+                }
+            });
+        });
+    });
+
+}
+*/

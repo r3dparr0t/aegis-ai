@@ -5,7 +5,7 @@ meta:
   order: 2
   tags: [ssrf, blacklist]
 
-max_attempts: 6
+max_attempts: 5
 
 target:
   url: http://localhost:5000/api/v2/webhook

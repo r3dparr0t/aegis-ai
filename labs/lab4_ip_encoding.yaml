@@ -5,7 +5,7 @@ meta:
   order: 4
   tags: [ssrf, filter-bypass, ip-encoding]
 
-max_attempts: 5
+max_attempts: 6
 
 target:
   url: http://localhost:5000/api/v3/strict

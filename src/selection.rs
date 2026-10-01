@@ -103,7 +103,7 @@ fn build_manual() -> Option<Arc<dyn LlmProvider>> {
 // Ollama model discovery
 // ---------------------------------------------------------------------------
 
-async fn fetch_ollama_models(base_url: &str) -> Vec<String> {
+pub async fn fetch_ollama_models(base_url: &str) -> Vec<String> {
     let url = format!("{}/api/tags", base_url.trim_end_matches('/'));
     let response = match reqwest::get(&url).await {
         Ok(r) => r,

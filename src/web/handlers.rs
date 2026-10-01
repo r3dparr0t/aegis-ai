@@ -151,6 +151,26 @@ pub async fn run_lab(
     (StatusCode::OK, "started").into_response()
 }
 
+/// اجرای همه‌ی Labها به‌ترتیب. خودش قفل می‌گیره و آزاد می‌کنه بعد از هر لب.
+/// از یه تسک پس‌زمینه استفاده می‌کنه چون کل عملیات می‌تونه دقیقه‌ها طول بکشه.
+pub async fn run_all(State(app): State<AppCtx>) -> impl IntoResponse {
+    // چک کن قفل آزاده
+    if app.ctx.run_lock.lock().unwrap().is_some() {
+        return (StatusCode::CONFLICT, "a lab is already running").into_response();
+    }
+
+    let labs = app.labs.clone();
+    let ctx = app.ctx.clone();
+
+    tokio::spawn(async move {
+        for lab in labs.iter() {
+            runner::run_lab(&ctx, lab, None).await;
+        }
+    });
+
+    (StatusCode::OK, "started all").into_response()
+}
+
 pub async fn list_reports(
     State(app): State<AppCtx>,
     Path(idx): Path<usize>,
@@ -203,4 +223,56 @@ pub async fn get_log(State(app): State<AppCtx>) -> impl IntoResponse {
     let n = s.log.len();
     let start = n.saturating_sub(200);
     Json(json!(s.log[start..]))
+}
+
+/// provider/مدل فعلی — برای نمایش تو هدر پنل وب.
+pub async fn get_provider(State(app): State<AppCtx>) -> impl IntoResponse {
+    let info = app.ctx.provider.read().unwrap().info();
+    Json(json!(info))
+}
+
+/// لیست مدل‌های قابل انتخاب. فقط برای Ollama معنی داره — provider فعلی اگه
+/// Ollama نباشه (مثلاً TypeSafe یا یه API ثابت)، لیست خالی برمی‌گرده، چون
+/// دیگه providerها مفهوم «سوییچ مدل زنده» ندارن (TypeSafe اصلاً classifier
+/// ـه، نه چت؛ OpenAI-compatible هم هر provider واقعیش فرق می‌کنه).
+pub async fn list_models(State(app): State<AppCtx>) -> impl IntoResponse {
+    let info = app.ctx.provider.read().unwrap().info();
+    if info.kind != "ollama" {
+        return Json(json!({ "models": [], "kind": info.kind }));
+    }
+    let models = crate::selection::fetch_ollama_models(&info.base_url).await;
+    Json(json!({ "models": models, "kind": "ollama" }))
+}
+
+#[derive(Deserialize)]
+pub struct SetModel {
+    pub model: String,
+}
+
+/// تغییر مدل Ollama فعال. فقط وقتی هیچ Labی در حال اجرا نیست مجازه — چون
+/// provider موجود همین الان ممکنه وسط یه execute() باشه.
+pub async fn set_provider(
+    State(app): State<AppCtx>,
+    Json(payload): Json<SetModel>,
+) -> impl IntoResponse {
+    let current = app.ctx.provider.read().unwrap().info();
+    if current.kind != "ollama" {
+        return (
+            StatusCode::CONFLICT,
+            "live model switching is only supported while the active provider is Ollama",
+        )
+            .into_response();
+    }
+    if app.ctx.run_lock.lock().unwrap().is_some() {
+        return (StatusCode::CONFLICT, "cannot switch model while a lab is running").into_response();
+    }
+    if payload.model.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, "model name is empty").into_response();
+    }
+
+    let new_provider: std::sync::Arc<dyn crate::domain::LlmProvider> =
+        std::sync::Arc::new(crate::provider::OllamaProvider::new(current.base_url, payload.model));
+    *app.ctx.provider.write().unwrap() = new_provider;
+
+    (StatusCode::OK, "switched").into_response()
 }

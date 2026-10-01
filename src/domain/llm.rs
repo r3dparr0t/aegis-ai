@@ -21,8 +21,23 @@ pub struct LlmResponse {
     pub latency_ms: u64,
 }
 
+/// معرفیِ یه provider برای نمایش در پنل وب (دراپ‌داون مدل) — بدون اینکه
+/// UI/handler مجبور باشه نوع واقعیِ provider رو بدونه یا downcast کنه.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ProviderInfo {
+    pub kind: &'static str, // "ollama" | "openai_compatible" | "typesafe"
+    pub model: String,
+    pub base_url: String,
+    pub is_local: bool,
+}
+
 /// اینترفیس تعامل با تامین‌کنندگان LLM
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
     async fn generate(&self, request: &LlmRequest) -> Result<LlmResponse, LlmError>;
+
+    /// معرفیِ خودش — هر provider واقعی باید این رو با مقادیر درستش پیاده کنه.
+    /// عمداً default نداره تا یه provider جدید این‌رو فراموش نکنه و اطلاعات
+    /// غلط نشون نده.
+    fn info(&self) -> ProviderInfo;
 }

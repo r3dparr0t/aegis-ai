@@ -6,401 +6,148 @@
 <title>Aegis — SSRF Fuzzing Engine</title>
 <style>
   :root {
-    --bg:        #0b0f17;
-    --panel:     #111823;
-    --panel-2:   #0d141d;
-    --border:    #1f2a37;
-    --border-2:  #2d3a4d;
-    --text:      #e6edf3;
-    --text-dim:  #8b98a9;
-    --text-faint:#4d5866;
-    --accent:    #4ea1ff;
-    --green:     #3fb950;
-    --yellow:    #d29922;
-    --red:       #f85149;
-    --gray:      #6e7681;
-    --mono:      ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --bg:#0b0f17; --panel:#111823; --panel-2:#0d141d;
+    --border:#1f2a37; --border-2:#2d3a4d;
+    --text:#e6edf3; --text-dim:#8b98a9; --text-faint:#4d5866;
+    --accent:#4ea1ff; --green:#3fb950; --yellow:#d29922;
+    --red:#f85149; --gray:#6e7681;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body {
-    height: 100%;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    font-size: 14px;
-    line-height: 1.5;
-    overflow: hidden;
-  }
-  .app { display: grid; grid-template-columns: 320px 1fr; height: 100vh; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;overflow:hidden}
+  .app{display:grid;grid-template-columns:320px 1fr;height:100vh}
 
   /* ═══ Sidebar ═══ */
-  .sidebar {
-    background: var(--panel-2);
-    border-right: 1px solid var(--border);
-    display: flex; flex-direction: column; overflow: hidden;
+  .sidebar{background:var(--panel-2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+  .brand{padding:18px 22px 14px;border-bottom:1px solid var(--border)}
+  .brand h1{font-size:15px;font-weight:700;letter-spacing:0.5px;display:flex;align-items:center;gap:8px}
+  .brand .sub{font-size:11px;color:var(--text-dim);margin-top:3px;font-family:var(--mono)}
+
+  /* ═══ Model switcher ═══ */
+  .model-box{padding:12px 22px;border-bottom:1px solid var(--border);background:var(--panel)}
+  .model-box .lbl{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.9px;font-weight:600;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+  .model-box .lbl .kind{color:var(--accent);font-family:var(--mono);font-size:10px;text-transform:none;letter-spacing:0}
+  .model-row{display:flex;gap:6px}
+  .model-row select{
+    flex:1;min-width:0;background:var(--panel-2);color:var(--text);
+    border:1px solid var(--border-2);border-radius:6px;
+    padding:7px 10px;font-size:12px;font-family:var(--mono);
+    appearance:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path fill='%238b98a9' d='M5 7L1 3h8z'/></svg>");
+    background-repeat:no-repeat;background-position:right 8px center;padding-right:26px;
+    cursor:pointer;
   }
-  .brand {
-    padding: 20px 24px;
-    border-bottom: 1px solid var(--border);
+  .model-row select:hover:not(:disabled){border-color:var(--text-dim)}
+  .model-row select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(78,161,255,0.1)}
+  .model-row select:disabled{opacity:0.5;cursor:not-allowed}
+  .model-apply{
+    background:var(--accent);border:1px solid var(--accent);color:white;
+    width:34px;flex-shrink:0;padding:0;border-radius:6px;cursor:pointer;
+    font-size:14px;display:flex;align-items:center;justify-content:center;
+    transition:all 0.1s;
   }
-  .brand h1 {
-    font-size: 15px; font-weight: 700;
-    letter-spacing: 0.5px;
-    display: flex; align-items: center; gap: 8px;
-  }
-  .brand .sub {
-    font-size: 11px; color: var(--text-dim);
-    margin-top: 4px; font-family: var(--mono);
-  }
-  .labs { flex: 1; overflow-y: auto; padding: 8px 0; }
-  .lab-item {
-    padding: 12px 24px;
-    cursor: pointer;
-    border-left: 3px solid transparent;
-    transition: background 0.1s;
-    display: flex; gap: 12px; align-items: flex-start;
-  }
-  .lab-item:hover { background: var(--panel); }
-  .lab-item.active {
-    background: var(--panel);
-    border-left-color: var(--accent);
-  }
-  .lab-dot {
-    width: 10px; height: 10px; border-radius: 50%;
-    margin-top: 6px; flex-shrink: 0;
-    background: var(--gray);
-  }
-  .lab-dot.running {
-    background: var(--yellow);
-    animation: pulse 1.4s ease-in-out infinite;
-  }
-  .lab-dot.passed { background: var(--green); }
-  .lab-dot.failed { background: var(--red); }
-  @keyframes pulse {
-    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(210,153,34,0.5); }
-    50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(210,153,34,0); }
-  }
-  .lab-info { flex: 1; min-width: 0; }
-  .lab-name {
-    font-size: 13px; font-weight: 500; line-height: 1.35;
-    overflow: hidden; text-overflow: ellipsis;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  }
-  .lab-meta {
-    font-size: 11px; color: var(--text-dim); margin-top: 4px;
-    font-family: var(--mono);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .lab-mini-bar {
-    margin-top: 8px;
-    height: 4px;
-    background: var(--border);
-    border-radius: 2px;
-    overflow: hidden;
-  }
-  .lab-mini-fill {
-    height: 100%;
-    transition: width 0.4s ease, background 0.4s ease;
-    min-width: 2px;
-  }
+  .model-apply:hover:not(:disabled){background:#5aabff}
+  .model-apply:disabled{opacity:0.3;cursor:not-allowed}
+  .model-hint{font-size:10px;color:var(--text-faint);margin-top:6px;line-height:1.4}
+
+  /* ═══ Labs list ═══ */
+  .labs-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden}
+  .labs-header{padding:10px 22px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);background:var(--panel)}
+  .labs-header .lbl{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.9px;font-weight:600}
+  .labs-header button{padding:4px 10px;font-size:11px;border-radius:5px}
+  .labs{flex:1;overflow-y:auto;padding:6px 0}
+  .lab-item{padding:11px 22px;cursor:pointer;border-left:3px solid transparent;transition:background 0.1s;display:flex;gap:12px;align-items:flex-start}
+  .lab-item:hover{background:var(--panel)}
+  .lab-item.active{background:var(--panel);border-left-color:var(--accent)}
+  .lab-dot{width:10px;height:10px;border-radius:50%;margin-top:6px;flex-shrink:0;background:var(--gray)}
+  .lab-dot.running{background:var(--yellow);animation:pulse 1.4s ease-in-out infinite}
+  .lab-dot.passed{background:var(--green)}
+  .lab-dot.failed{background:var(--red)}
+  @keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(210,153,34,0.5)}50%{opacity:0.7;box-shadow:0 0 0 6px rgba(210,153,34,0)}}
+  .lab-info{flex:1;min-width:0}
+  .lab-name{font-size:13px;font-weight:500;line-height:1.35;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  .lab-meta{font-size:11px;color:var(--text-dim);margin-top:4px;font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lab-mini-bar{margin-top:8px;height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+  .lab-mini-fill{height:100%;transition:width 0.4s ease,background 0.4s ease;min-width:2px}
 
   /* ═══ Main ═══ */
-  .main { display: flex; flex-direction: column; overflow: hidden; }
-  .main-header {
-    padding: 20px 32px;
-    border-bottom: 1px solid var(--border);
-    background: var(--panel-2);
-    display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  }
-  .main-title h2 { font-size: 17px; font-weight: 600; margin-bottom: 3px; }
-  .main-title .sub {
-    font-size: 12px; color: var(--text-dim);
-    font-family: var(--mono); word-break: break-all;
-  }
-  .status-badge {
-    padding: 5px 12px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    background: var(--gray);
-    color: white;
-    display: inline-flex; align-items: center; gap: 6px;
-    flex-shrink: 0;
-  }
-  .status-badge.running { background: var(--yellow); }
-  .status-badge.passed  { background: var(--green); }
-  .status-badge.failed  { background: var(--red); }
-  .status-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: white; }
+  .main{display:flex;flex-direction:column;overflow:hidden}
+  .main-header{padding:20px 32px;border-bottom:1px solid var(--border);background:var(--panel-2);display:flex;align-items:center;justify-content:space-between;gap:16px}
+  .main-title h2{font-size:17px;font-weight:600;margin-bottom:3px}
+  .main-title .sub{font-size:12px;color:var(--text-dim);font-family:var(--mono);word-break:break-all}
+  .status-badge{padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;background:var(--gray);color:white;display:inline-flex;align-items:center;gap:6px;flex-shrink:0}
+  .status-badge.running{background:var(--yellow)}
+  .status-badge.passed{background:var(--green)}
+  .status-badge.failed{background:var(--red)}
+  .status-badge .dot{width:6px;height:6px;border-radius:50%;background:white}
 
-  .tabs {
-    display: flex; gap: 2px; padding: 0 32px;
-    border-bottom: 1px solid var(--border);
-    background: var(--panel-2);
-  }
-  .tab {
-    padding: 12px 18px;
-    font-size: 13px;
-    color: var(--text-dim);
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
-    font-weight: 500;
-    transition: color 0.1s;
-  }
-  .tab:hover { color: var(--text); }
-  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tabs{display:flex;gap:2px;padding:0 32px;border-bottom:1px solid var(--border);background:var(--panel-2)}
+  .tab{padding:12px 18px;font-size:13px;color:var(--text-dim);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;font-weight:500;transition:color 0.1s}
+  .tab:hover{color:var(--text)}
+  .tab.active{color:var(--text);border-bottom-color:var(--accent)}
 
-  .tab-content { flex: 1; overflow-y: auto; padding: 24px 32px; }
+  .tab-content{flex:1;overflow-y:auto;padding:24px 32px}
 
-  /* ═══ Buttons ═══ */
-  button, .btn {
-    background: var(--panel);
-    color: var(--text);
-    border: 1px solid var(--border-2);
-    padding: 8px 16px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
-    font-family: inherit;
-    font-weight: 500;
-    transition: all 0.1s;
-    display: inline-flex; align-items: center; gap: 6px;
-  }
-  button:hover:not(:disabled) {
-    background: var(--panel-2);
-    border-color: var(--text-dim);
-  }
-  button:disabled { opacity: 0.4; cursor: not-allowed; }
-  button.primary {
-    background: var(--green);
-    border-color: var(--green);
-    color: white;
-  }
-  button.primary:hover:not(:disabled) {
-    background: #4acd5f; border-color: #4acd5f;
-  }
-  .actions {
-    display: flex; gap: 8px;
-    padding: 0 32px 16px;
-    flex-wrap: wrap;
-  }
+  button,.btn{background:var(--panel);color:var(--text);border:1px solid var(--border-2);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-family:inherit;font-weight:500;transition:all 0.1s;display:inline-flex;align-items:center;gap:6px}
+  button:hover:not(:disabled){background:var(--panel-2);border-color:var(--text-dim)}
+  button:disabled{opacity:0.4;cursor:not-allowed}
+  button.primary{background:var(--green);border-color:var(--green);color:white}
+  button.primary:hover:not(:disabled){background:#4acd5f;border-color:#4acd5f}
+  .actions{display:flex;gap:8px;padding:0 32px 16px;flex-wrap:wrap}
 
-  /* ═══ Info cards ═══ */
-  .info-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
-  .info-card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 18px 20px;
-  }
-  .info-card h3 {
-    font-size: 11px;
-    color: var(--text-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    margin-bottom: 12px;
-    font-weight: 600;
-  }
-  .info-row {
-    display: flex; gap: 12px;
-    padding: 6px 0;
-    font-size: 13px;
-    border-bottom: 1px solid var(--border);
-  }
-  .info-row:last-child { border-bottom: none; }
-  .info-row .k { color: var(--text-dim); min-width: 130px; flex-shrink: 0; }
-  .info-row .v {
-    font-family: var(--mono);
-    color: var(--accent);
-    word-break: break-all;
-    font-size: 12.5px;
-  }
-  .info-row .v.plain { font-family: inherit; color: var(--text); }
+  .info-grid{display:grid;grid-template-columns:1fr;gap:20px}
+  .info-card{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:18px 20px}
+  .info-card h3{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:12px;font-weight:600}
+  .info-row{display:flex;gap:12px;padding:6px 0;font-size:13px;border-bottom:1px solid var(--border)}
+  .info-row:last-child{border-bottom:none}
+  .info-row .k{color:var(--text-dim);min-width:130px;flex-shrink:0}
+  .info-row .v{font-family:var(--mono);color:var(--accent);word-break:break-all;font-size:12.5px}
+  .info-row .v.plain{font-family:inherit;color:var(--text)}
 
-  /* ═══ Attempt bar (نمودار خوابیده) ═══ */
-  .attempt-head {
-    display: flex; justify-content: space-between; align-items: baseline;
-    margin-bottom: 10px;
-  }
-  .attempt-head .label {
-    font-size: 11px;
-    color: var(--text-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    font-weight: 600;
-  }
-  .attempt-head .pct {
-    font-family: var(--mono);
-    font-size: 14px;
-    font-weight: 700;
-  }
-  .attempt-hbar {
-    display: flex; align-items: center; gap: 16px;
-  }
-  .attempt-hbar-track {
-    flex: 1;
-    height: 34px;
-    background: var(--panel-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
-    position: relative;
-  }
-  .attempt-hbar-fill {
-    height: 100%;
-    transition: width 0.5s ease, background 0.5s ease;
-    border-radius: 7px;
-    min-width: 3px;
-  }
-  .attempt-hbar-value {
-    font-family: var(--mono);
-    font-size: 20px;
-    font-weight: 700;
-    color: var(--text);
-    min-width: 110px;
-    text-align: right;
-  }
-  .attempt-hbar-value .of {
-    color: var(--text-faint);
-    font-weight: 400;
-    font-size: 15px;
-  }
-  .attempt-legend {
-    display: flex; gap: 12px; margin-top: 16px;
-    font-size: 11px;
-    color: var(--text-dim);
-    font-family: var(--mono);
-    flex-wrap: wrap;
-  }
-  .attempt-legend .stop { display: flex; align-items: center; gap: 5px; }
-  .attempt-legend .swatch {
-    width: 12px; height: 12px; border-radius: 3px;
-  }
-  .attempt-note {
-    margin-top: 12px;
-    font-size: 12px;
-    color: var(--text-dim);
-    font-style: italic;
-  }
+  .attempt-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+  .attempt-head .label{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;font-weight:600}
+  .attempt-head .pct{font-family:var(--mono);font-size:14px;font-weight:700}
+  .attempt-hbar{display:flex;align-items:center;gap:16px}
+  .attempt-hbar-track{flex:1;height:34px;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;overflow:hidden;position:relative}
+  .attempt-hbar-fill{height:100%;transition:width 0.5s ease,background 0.5s ease;border-radius:7px;min-width:3px}
+  .attempt-hbar-value{font-family:var(--mono);font-size:20px;font-weight:700;color:var(--text);min-width:110px;text-align:right}
+  .attempt-hbar-value .of{color:var(--text-faint);font-weight:400;font-size:15px}
+  .attempt-legend{display:flex;gap:12px;margin-top:16px;font-size:11px;color:var(--text-dim);font-family:var(--mono);flex-wrap:wrap}
+  .attempt-legend .stop{display:flex;align-items:center;gap:5px}
+  .attempt-legend .swatch{width:12px;height:12px;border-radius:3px}
+  .attempt-note{margin-top:12px;font-size:12px;color:var(--text-dim);font-style:italic}
 
-  /* ═══ YAML editor ═══ */
-  .editor-wrap { display: flex; flex-direction: column; gap: 12px; }
-  .editor-toolbar { display: flex; gap: 8px; align-items: center; }
-  .editor-status {
-    font-size: 12px;
-    color: var(--text-dim);
-    font-family: var(--mono);
-    margin-left: 4px;
-  }
-  textarea.yaml-editor {
-    width: 100%;
-    min-height: 600px;
-    background: var(--panel-2);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px;
-    font-family: var(--mono);
-    font-size: 12.5px;
-    line-height: 1.65;
-    resize: vertical;
-    tab-size: 2;
-  }
-  textarea.yaml-editor:focus {
-    outline: none;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(78,161,255,0.1);
-  }
+  .editor-wrap{display:flex;flex-direction:column;gap:12px}
+  .editor-toolbar{display:flex;gap:8px;align-items:center}
+  .editor-status{font-size:12px;color:var(--text-dim);font-family:var(--mono);margin-left:4px}
+  textarea.yaml-editor{width:100%;min-height:600px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:16px;font-family:var(--mono);font-size:12.5px;line-height:1.65;resize:vertical;tab-size:2}
+  textarea.yaml-editor:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(78,161,255,0.1)}
 
-  /* ═══ Reports ═══ */
-  .report-list { display: flex; flex-direction: column; gap: 6px; }
-  .report-item {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 12px 16px;
-    cursor: pointer;
-    display: flex; justify-content: space-between; align-items: center;
-    transition: all 0.1s;
-  }
-  .report-item:hover {
-    border-color: var(--accent);
-    background: var(--panel-2);
-  }
-  .report-item .id {
-    font-family: var(--mono);
-    font-size: 12px;
-    color: var(--accent);
-  }
-  .report-item .time {
-    font-size: 11px;
-    color: var(--text-dim);
-    font-family: var(--mono);
-  }
-  .report-detail {
-    background: var(--panel-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px;
-    font-family: var(--mono);
-    font-size: 12px;
-    line-height: 1.65;
-    white-space: pre-wrap;
-    word-break: break-word;
-    max-height: 70vh;
-    overflow-y: auto;
-    color: var(--text);
-  }
-  .report-detail .key { color: var(--accent); }
-  .report-detail .str { color: #a5d6ff; }
-  .report-detail .num { color: #79c0ff; }
-  .report-detail .bool-t { color: var(--green); }
-  .report-detail .bool-f { color: var(--red); }
-  .report-detail .null { color: var(--text-faint); }
+  .report-list{display:flex;flex-direction:column;gap:6px}
+  .report-item{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:12px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;transition:all 0.1s}
+  .report-item:hover{border-color:var(--accent);background:var(--panel-2)}
+  .report-item .id{font-family:var(--mono);font-size:12px;color:var(--accent)}
+  .report-item .time{font-size:11px;color:var(--text-dim);font-family:var(--mono)}
+  .report-detail{background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:16px;font-family:var(--mono);font-size:12px;line-height:1.65;white-space:pre-wrap;word-break:break-word;max-height:70vh;overflow-y:auto;color:var(--text)}
+  .report-detail .key{color:var(--accent)}
+  .report-detail .str{color:#a5d6ff}
+  .report-detail .num{color:#79c0ff}
+  .report-detail .bool-t{color:var(--green)}
+  .report-detail .bool-f{color:var(--red)}
+  .report-detail .null{color:var(--text-faint)}
 
-  /* ═══ Empty ═══ */
-  .empty {
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    padding: 80px 20px;
-    color: var(--text-dim);
-    gap: 12px;
-    text-align: center;
-  }
-  .empty .icon { font-size: 48px; opacity: 0.3; }
-  .empty .msg { font-size: 14px; }
+  .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 20px;color:var(--text-dim);gap:12px;text-align:center}
+  .empty .icon{font-size:48px;opacity:0.3}
+  .empty .msg{font-size:14px}
 
-  /* ═══ Toast ═══ */
-  .toast {
-    position: fixed;
-    bottom: 24px; right: 24px;
-    padding: 12px 20px;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: 500;
-    color: white;
-    background: var(--green);
-    opacity: 0;
-    transform: translateY(10px);
-    transition: all 0.25s;
-    pointer-events: none;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-    z-index: 1000;
-  }
-  .toast.show { opacity: 1; transform: translateY(0); }
-  .toast.err { background: var(--red); }
+  .toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;font-size:13px;font-weight:500;color:white;background:var(--green);opacity:0;transform:translateY(10px);transition:all 0.25s;pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:1000}
+  .toast.show{opacity:1;transform:translateY(0)}
+  .toast.err{background:var(--red)}
 
-  /* ═══ Scrollbar ═══ */
-  ::-webkit-scrollbar { width: 10px; height: 10px; }
-  ::-webkit-scrollbar-track { background: var(--bg); }
-  ::-webkit-scrollbar-thumb {
-    background: var(--border-2);
-    border-radius: 5px;
-    border: 2px solid var(--bg);
-  }
-  ::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-track{background:var(--bg)}
+  ::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:5px;border:2px solid var(--bg)}
+  ::-webkit-scrollbar-thumb:hover{background:var(--text-faint)}
 </style>
 </head>
 <body>
@@ -410,7 +157,28 @@
       <h1>🛡 Aegis</h1>
       <div class="sub">SSRF Fuzzing Engine</div>
     </div>
-    <div class="labs" id="lab-list"></div>
+
+    <!-- Model switcher -->
+    <div class="model-box">
+      <div class="lbl">
+        <span>Model</span>
+        <span class="kind" id="provider-kind">—</span>
+      </div>
+      <div class="model-row">
+        <select id="model-select" disabled></select>
+        <button class="model-apply" id="model-apply" onclick="applyModel()" disabled title="Apply">✓</button>
+      </div>
+      <div class="model-hint" id="model-hint">Loading…</div>
+    </div>
+
+    <!-- Labs list -->
+    <div class="labs-wrap">
+      <div class="labs-header">
+        <span class="lbl">Labs</span>
+        <button onclick="runAll()" title="Run all labs sequentially">▶ Run all</button>
+      </div>
+      <div class="labs" id="lab-list"></div>
+    </div>
   </aside>
 
   <main class="main">
@@ -426,18 +194,15 @@
 <div class="toast" id="toast"></div>
 
 <script>
-// ═══════════════════════════════════════════════════════════
-// State
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
 let labs = [];
 let currentIdx = null;
 let currentTab = 'overview';
 let currentReport = null;
 let pollingTimer = null;
+let providerInfo = null;
+let selectedModel = null;
 
-// ═══════════════════════════════════════════════════════════
-// Helpers
-// ═══════════════════════════════════════════════════════════
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -452,8 +217,7 @@ function toast(msg, isErr = false) {
 
 function fmtTime(ms) {
   if (!ms) return '—';
-  const now = Date.now();
-  const diff = now - ms;
+  const now = Date.now(), diff = now - ms;
   if (diff < 60000) return 'just now';
   if (diff < 3600000) return `${Math.floor(diff/60000)}m ago`;
   if (diff < 86400000) return `${Math.floor(diff/3600000)}h ago`;
@@ -464,7 +228,6 @@ function stateClass(s) {
   if (!s || !s.kind || s.kind === 'untouched') return '';
   return s.kind;
 }
-
 function stateLabel(s) {
   if (!s || !s.kind || s.kind === 'untouched') return 'idle';
   if (s.kind === 'running') return `running · ${s.attempt}/${s.max}`;
@@ -473,39 +236,24 @@ function stateLabel(s) {
   return s.kind;
 }
 
-// ═══════════════════════════════════════════════════════════
-// Attempt color gradient
-//   ratio = used / max  (0..1)
-//   0.00 → سبز (خوب)
-//   0.50 → زرد (متوسط)
-//   0.75 → قرمز (بد)
-//   0.90 → قهوه‌ای (خیلی بد)
-//   1.00 → ارغوانی (به سقف رسید)
-// ═══════════════════════════════════════════════════════════
 const ATTEMPT_STOPS = [
-  [0.00, [ 63, 185,  80]],   // green
-  [0.50, [210, 153,  34]],   // yellow
-  [0.75, [248,  81,  73]],   // red
-  [0.90, [139,  69,  19]],   // brown
-  [1.00, [163, 113, 247]],   // purple
+  [0.00,[ 63,185, 80]],[0.50,[210,153, 34]],[0.75,[248, 81, 73]],
+  [0.90,[139, 69, 19]],[1.00,[163,113,247]],
 ];
-
 function attemptColor(ratio) {
   ratio = Math.max(0, Math.min(1, ratio));
   for (let i = 0; i < ATTEMPT_STOPS.length - 1; i++) {
-    const [r0, c0] = ATTEMPT_STOPS[i];
-    const [r1, c1] = ATTEMPT_STOPS[i + 1];
+    const [r0,c0] = ATTEMPT_STOPS[i], [r1,c1] = ATTEMPT_STOPS[i+1];
     if (ratio >= r0 && ratio <= r1) {
       const t = (r1 === r0) ? 0 : (ratio - r0) / (r1 - r0);
-      const r = Math.round(c0[0] + (c1[0] - c0[0]) * t);
-      const g = Math.round(c0[1] + (c1[1] - c0[1]) * t);
-      const b = Math.round(c0[2] + (c1[2] - c0[2]) * t);
-      return `rgb(${r}, ${g}, ${b})`;
+      const r = Math.round(c0[0] + (c1[0]-c0[0])*t);
+      const g = Math.round(c0[1] + (c1[1]-c0[1])*t);
+      const b = Math.round(c0[2] + (c1[2]-c0[2])*t);
+      return `rgb(${r},${g},${b})`;
     }
   }
-  return 'rgb(163, 113, 247)';
+  return 'rgb(163,113,247)';
 }
-
 function attemptRatio(status, max) {
   if (!max || max <= 0) return 0;
   if (!status || !status.kind || status.kind === 'untouched') return 0;
@@ -513,7 +261,6 @@ function attemptRatio(status, max) {
   if (status.kind === 'passed' || status.kind === 'failed') return status.attempts / max;
   return 0;
 }
-
 function attemptsUsed(status) {
   if (!status || !status.kind || status.kind === 'untouched') return 0;
   if (status.kind === 'running') return status.attempt;
@@ -521,20 +268,14 @@ function attemptsUsed(status) {
   return 0;
 }
 
-// ═══════════════════════════════════════════════════════════
-// Lab List
-// ═══════════════════════════════════════════════════════════
+// ═══ Labs ═══
 async function loadLabs() {
   try {
     const r = await fetch('/api/labs');
     labs = await r.json();
     renderLabList();
-    if (currentIdx !== null && labs[currentIdx]) {
-      updateHeaderStatus();
-    }
-  } catch (e) {
-    console.error('loadLabs failed:', e);
-  }
+    if (currentIdx !== null && labs[currentIdx]) updateHeaderStatus();
+  } catch (e) { console.error(e); }
 }
 
 function renderLabList() {
@@ -549,37 +290,28 @@ function renderLabList() {
     const ratio = attemptRatio(l.status, l.max_attempts);
     const color = attemptColor(ratio);
     const hasRun = l.status && l.status.kind !== 'untouched';
-    const fillStyle = hasRun
-      ? `width:${(ratio * 100).toFixed(1)}%; background:${color};`
-      : 'width:0%';
-
+    const fillStyle = hasRun ? `width:${(ratio*100).toFixed(1)}%;background:${color};` : 'width:0%';
     return `
-      <div class="lab-item ${currentIdx === l.index ? 'active' : ''}"
-           onclick="openLab(${l.index})">
+      <div class="lab-item ${currentIdx === l.index ? 'active' : ''}" onclick="openLab(${l.index})">
         <div class="lab-dot ${cls}"></div>
         <div class="lab-info">
           <div class="lab-name">${esc(l.name)}</div>
           <div class="lab-meta">${esc(badge)}</div>
-          <div class="lab-mini-bar">
-            <div class="lab-mini-fill" style="${fillStyle}"></div>
-          </div>
+          <div class="lab-mini-bar"><div class="lab-mini-fill" style="${fillStyle}"></div></div>
         </div>
-      </div>
-    `;
+      </div>`;
   }).join('');
 }
 
 function updateHeaderStatus() {
   const lab = labs[currentIdx];
   if (!lab) return;
-
   const badge = $('header-badge');
   if (badge) {
     const cls = stateClass(lab.status);
     badge.className = 'status-badge ' + cls;
     badge.innerHTML = `<span class="dot"></span>${esc(stateLabel(lab.status))}`;
   }
-
   const runBtn = $('run-btn');
   if (runBtn) {
     const running = lab.status && lab.status.kind === 'running';
@@ -588,9 +320,71 @@ function updateHeaderStatus() {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// Open Lab
-// ═══════════════════════════════════════════════════════════
+// ═══ Provider / Model ═══
+async function loadProvider() {
+  try {
+    const r = await fetch('/api/provider');
+    providerInfo = await r.json();
+    selectedModel = providerInfo.model;
+    $('provider-kind').textContent = providerInfo.kind || '—';
+    const sel = $('model-select');
+    if (providerInfo.kind === 'ollama') {
+      const mr = await fetch('/api/models');
+      const data = await mr.json();
+      const models = data.models || [];
+      sel.innerHTML = models.map(m =>
+        `<option value="${esc(m)}" ${m === providerInfo.model ? 'selected' : ''}>${esc(m)}</option>`
+      ).join('');
+      if (!models.length) sel.innerHTML = `<option>${esc(providerInfo.model||'—')}</option>`;
+      sel.disabled = false;
+      updateApplyBtn();
+      $('model-hint').textContent = providerInfo.base_url;
+    } else {
+      sel.innerHTML = `<option>${esc(providerInfo.model||'—')}</option>`;
+      sel.disabled = true;
+      $('model-apply').disabled = true;
+      $('model-hint').textContent = 'live switching only for Ollama';
+    }
+  } catch (e) {
+    $('model-hint').textContent = 'failed to load provider';
+  }
+}
+
+function updateApplyBtn() {
+  const running = labs.some(l => l.status && l.status.kind === 'running');
+  const changed = selectedModel && providerInfo && selectedModel !== providerInfo.model;
+  const btn = $('model-apply');
+  if (!btn) return;
+  btn.disabled = running || !changed || providerInfo?.kind !== 'ollama';
+}
+
+$('model-select')?.addEventListener('change', (e) => {
+  selectedModel = e.target.value;
+  updateApplyBtn();
+});
+
+async function applyModel() {
+  if (!selectedModel) return;
+  const r = await fetch('/api/provider', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: selectedModel }),
+  });
+  if (r.ok) { toast('Model switched'); await loadProvider(); }
+  else {
+    const err = await r.text();
+    toast(err.slice(0, 80), true);
+  }
+}
+
+async function runAll() {
+  const r = await fetch('/api/run-all', { method: 'POST' });
+  if (r.ok) { toast('Running all labs'); startPolling(); }
+  else if (r.status === 409) toast('A lab is already running', true);
+  else toast('Failed to start', true);
+}
+
+// ═══ Open Lab ═══
 async function openLab(idx) {
   currentIdx = idx;
   currentTab = 'overview';
@@ -603,7 +397,6 @@ async function renderMain() {
   if (currentIdx === null) return;
   const lab = labs[currentIdx];
   if (!lab) return;
-
   const cls = stateClass(lab.status);
 
   $('main-content').innerHTML = `
@@ -616,23 +409,18 @@ async function renderMain() {
         <span class="dot"></span>${esc(stateLabel(lab.status))}
       </div>
     </div>
-
     <div class="tabs">
-      <div class="tab ${currentTab === 'overview' ? 'active' : ''}" onclick="switchTab('overview')">Overview</div>
-      <div class="tab ${currentTab === 'yaml' ? 'active' : ''}" onclick="switchTab('yaml')">YAML</div>
-      <div class="tab ${currentTab === 'reports' ? 'active' : ''}" onclick="switchTab('reports')">Reports</div>
+      <div class="tab ${currentTab==='overview'?'active':''}" onclick="switchTab('overview')">Overview</div>
+      <div class="tab ${currentTab==='yaml'?'active':''}" onclick="switchTab('yaml')">YAML</div>
+      <div class="tab ${currentTab==='reports'?'active':''}" onclick="switchTab('reports')">Reports</div>
     </div>
-
     <div class="actions">
-      <button class="primary" id="run-btn" onclick="runCurrent()">
-        ▶ Run
-      </button>
+      <button class="primary" id="run-btn" onclick="runCurrent()">▶ Run</button>
       <button onclick="switchTab('yaml')">📝 Edit YAML</button>
       <button onclick="switchTab('reports')">📄 Reports</button>
     </div>
     <div class="tab-content" id="tab-body"></div>
   `;
-
   updateHeaderStatus();
   await renderTabBody();
 }
@@ -640,8 +428,8 @@ async function renderMain() {
 function switchTab(name) {
   currentTab = name;
   currentReport = null;
-  document.querySelectorAll('.tab').forEach((t, i) => {
-    t.classList.toggle('active', ['overview', 'yaml', 'reports'][i] === name);
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    t.classList.toggle('active', ['overview','yaml','reports'][i] === name);
   });
   renderTabBody();
 }
@@ -650,27 +438,21 @@ async function renderTabBody() {
   const el = $('tab-body');
   if (!el) return;
 
-  // ─── Overview ───
   if (currentTab === 'overview') {
     const lab = labs[currentIdx];
     const maxA = lab.max_attempts || 5;
     const used = attemptsUsed(lab.status);
-    const ratio = maxA > 0 ? (used / maxA) : 0;
-    const pct = (ratio * 100).toFixed(0);
+    const ratio = maxA > 0 ? (used/maxA) : 0;
+    const pct = (ratio*100).toFixed(0);
     const color = attemptColor(ratio);
 
     let note = '';
-    if (!lab.status || lab.status.kind === 'untouched') {
-      note = 'Not run yet.';
-    } else if (lab.status.kind === 'passed') {
-      note = used <= Math.ceil(maxA / 2)
-        ? '✅ Solved within the first half of the attempt budget.'
-        : '✅ Solved, but late — the agent needed most of its attempts.';
-    } else if (lab.status.kind === 'failed') {
-      note = '❌ Failed — the attempt budget was exhausted without success.';
-    } else if (lab.status.kind === 'running') {
-      note = `⏳ In progress... attempt ${used} of ${maxA}.`;
-    }
+    if (!lab.status || lab.status.kind === 'untouched') note = 'Not run yet.';
+    else if (lab.status.kind === 'passed') note = used <= Math.ceil(maxA/2)
+      ? '✅ Solved within the first half of the budget.'
+      : '✅ Solved, but late — needed most of the budget.';
+    else if (lab.status.kind === 'failed') note = '❌ Failed — budget exhausted.';
+    else note = `⏳ In progress... attempt ${used} of ${maxA}.`;
 
     el.innerHTML = `
       <div class="info-grid">
@@ -681,42 +463,34 @@ async function renderTabBody() {
           </div>
           <div class="attempt-hbar">
             <div class="attempt-hbar-track">
-              <div class="attempt-hbar-fill"
-                   style="width:${pct}%; background:${color};"></div>
+              <div class="attempt-hbar-fill" style="width:${pct}%;background:${color};"></div>
             </div>
-            <div class="attempt-hbar-value">
-              ${used}<span class="of"> / ${maxA}</span>
-            </div>
+            <div class="attempt-hbar-value">${used}<span class="of"> / ${maxA}</span></div>
           </div>
           <div class="attempt-legend">
-            <span class="stop"><span class="swatch" style="background:${attemptColor(0.00)}"></span>0%</span>
-            <span class="stop"><span class="swatch" style="background:${attemptColor(0.50)}"></span>50%</span>
+            <span class="stop"><span class="swatch" style="background:${attemptColor(0)}"></span>0%</span>
+            <span class="stop"><span class="swatch" style="background:${attemptColor(0.5)}"></span>50%</span>
             <span class="stop"><span class="swatch" style="background:${attemptColor(0.75)}"></span>75%</span>
-            <span class="stop"><span class="swatch" style="background:${attemptColor(0.90)}"></span>90%</span>
-            <span class="stop"><span class="swatch" style="background:${attemptColor(1.00)}"></span>100%</span>
+            <span class="stop"><span class="swatch" style="background:${attemptColor(0.9)}"></span>90%</span>
+            <span class="stop"><span class="swatch" style="background:${attemptColor(1)}"></span>100%</span>
           </div>
           <div class="attempt-note">${esc(note)}</div>
         </div>
-
         <div class="info-card">
           <h3>Target</h3>
           <div class="info-row"><span class="k">Vulnerable URL</span><span class="v">${esc(lab.url)}</span></div>
           <div class="info-row"><span class="k">Internal target</span><span class="v">${esc(lab.target)}</span></div>
           <div class="info-row"><span class="k">Max attempts</span><span class="v">${maxA}</span></div>
         </div>
-
         ${lab.description ? `
         <div class="info-card">
           <h3>Description</h3>
           <div class="info-row"><span class="v plain">${esc(lab.description)}</span></div>
-        </div>
-        ` : ''}
-      </div>
-    `;
+        </div>` : ''}
+      </div>`;
     return;
   }
 
-  // ─── YAML ───
   if (currentTab === 'yaml') {
     el.innerHTML = `
       <div class="editor-wrap">
@@ -726,13 +500,11 @@ async function renderTabBody() {
           <span class="editor-status" id="yaml-status"></span>
         </div>
         <textarea class="yaml-editor" id="yaml-editor" spellcheck="false"></textarea>
-      </div>
-    `;
+      </div>`;
     await reloadYaml();
     return;
   }
 
-  // ─── Reports list ───
   if (currentTab === 'reports') {
     el.innerHTML = '<div class="empty"><div class="msg">Loading reports...</div></div>';
     try {
@@ -742,21 +514,17 @@ async function renderTabBody() {
         el.innerHTML = '<div class="empty"><div class="icon">📄</div><div class="msg">No reports yet — run the lab first</div></div>';
         return;
       }
-      el.innerHTML = `<div class="report-list">
-        ${reports.map(r => `
-          <div class="report-item" onclick="viewReport('${esc(r.exec_id)}')">
-            <span class="id">${esc(r.exec_id.slice(0, 12))}…</span>
-            <span class="time">${fmtTime(r.mtime)}</span>
-          </div>
-        `).join('')}
-      </div>`;
+      el.innerHTML = `<div class="report-list">${reports.map(r => `
+        <div class="report-item" onclick="viewReport('${esc(r.exec_id)}')">
+          <span class="id">${esc(r.exec_id.slice(0,12))}…</span>
+          <span class="time">${fmtTime(r.mtime)}</span>
+        </div>`).join('')}</div>`;
     } catch (e) {
       el.innerHTML = '<div class="empty"><div class="msg">Failed to load reports</div></div>';
     }
     return;
   }
 
-  // ─── Report detail ───
   if (currentTab === 'report-detail') {
     el.innerHTML = '<div class="empty"><div class="msg">Loading...</div></div>';
     try {
@@ -764,36 +532,24 @@ async function renderTabBody() {
       const data = await r.json();
       el.innerHTML = `
         <div style="margin-bottom:12px">
-          <button onclick="switchTab('reports')">← Back to reports</button>
+          <button onclick="switchTab('reports')">← Back</button>
         </div>
-        <div class="report-detail">${syntaxHighlight(data)}</div>
-      `;
+        <div class="report-detail">${syntaxHighlight(data)}</div>`;
     } catch (e) {
-      el.innerHTML = '<div class="empty"><div class="msg">Failed to load report</div></div>';
+      el.innerHTML = '<div class="empty"><div class="msg">Failed to load</div></div>';
     }
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// Actions
-// ═══════════════════════════════════════════════════════════
 async function runCurrent() {
   if (currentIdx === null) return;
   const btn = $('run-btn');
   if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Running...'; }
-
   try {
     const r = await fetch(`/api/lab/${currentIdx}/run`, { method: 'POST' });
-    if (r.ok) {
-      toast('Started');
-      startPolling();
-    } else if (r.status === 409) {
-      toast('Another lab is already running', true);
-      if (btn) { btn.disabled = false; btn.innerHTML = '▶ Run'; }
-    } else {
-      toast('Failed to start', true);
-      if (btn) { btn.disabled = false; btn.innerHTML = '▶ Run'; }
-    }
+    if (r.ok) { toast('Started'); startPolling(); }
+    else if (r.status === 409) { toast('Another lab is running', true); if (btn) { btn.disabled = false; btn.innerHTML = '▶ Run'; } }
+    else { toast('Failed', true); if (btn) { btn.disabled = false; btn.innerHTML = '▶ Run'; } }
   } catch (e) {
     toast('Network error', true);
     if (btn) { btn.disabled = false; btn.innerHTML = '▶ Run'; }
@@ -805,38 +561,30 @@ function startPolling() {
   let ticks = 0;
   pollingTimer = setInterval(async () => {
     await loadLabs();
-    if (currentIdx !== null && currentTab === 'overview') {
-      await renderTabBody();
-    }
+    if (currentIdx !== null && currentTab === 'overview') await renderTabBody();
+    updateApplyBtn();
     ticks++;
-    if (ticks > 180) clearInterval(pollingTimer);
+    if (ticks > 300) clearInterval(pollingTimer);
   }, 1000);
 }
 
-// ═══════════════════════════════════════════════════════════
-// YAML
-// ═══════════════════════════════════════════════════════════
 async function reloadYaml() {
   const el = $('yaml-editor');
   if (!el) return;
-  const status = $('yaml-status');
-  if (status) status.textContent = 'loading...';
+  const st = $('yaml-status');
+  if (st) st.textContent = 'loading...';
   try {
     const r = await fetch(`/api/lab/${currentIdx}/yaml`);
-    const txt = await r.text();
-    el.value = txt;
-    if (status) status.textContent = '';
-  } catch (e) {
-    if (status) status.textContent = '✗ load failed';
-  }
+    el.value = await r.text();
+    if (st) st.textContent = '';
+  } catch (e) { if (st) st.textContent = '✗ load failed'; }
 }
 
 async function saveYaml() {
   const el = $('yaml-editor');
   if (!el) return;
-  const status = $('yaml-status');
-  if (status) { status.textContent = 'saving...'; status.style.color = 'var(--text-dim)'; }
-
+  const st = $('yaml-status');
+  if (st) { st.textContent = 'saving...'; st.style.color = 'var(--text-dim)'; }
   try {
     const r = await fetch(`/api/lab/${currentIdx}/yaml`, {
       method: 'POST',
@@ -844,34 +592,26 @@ async function saveYaml() {
       body: JSON.stringify({ content: el.value }),
     });
     if (r.ok) {
-      if (status) { status.textContent = '✓ saved'; status.style.color = 'var(--green)'; }
-      toast('Saved to disk');
-      setTimeout(() => { if (status) status.textContent = ''; }, 2000);
+      if (st) { st.textContent = '✓ saved'; st.style.color = 'var(--green)'; }
+      toast('Saved');
+      setTimeout(() => { if (st) st.textContent = ''; }, 2000);
     } else {
       const err = await r.text();
-      if (status) { status.textContent = '✗ ' + err.slice(0, 100); status.style.color = 'var(--red)'; }
+      if (st) { st.textContent = '✗ ' + err.slice(0,80); st.style.color = 'var(--red)'; }
       toast('Save failed', true);
     }
   } catch (e) {
-    if (status) { status.textContent = '✗ network error'; status.style.color = 'var(--red)'; }
+    if (st) { st.textContent = '✗ network error'; st.style.color = 'var(--red)'; }
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// Reports
-// ═══════════════════════════════════════════════════════════
 async function viewReport(execId) {
   currentReport = execId;
   currentTab = 'report-detail';
-  document.querySelectorAll('.tab').forEach((t, i) => {
-    t.classList.toggle('active', i === 2);
-  });
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', i === 2));
   await renderTabBody();
 }
 
-// ═══════════════════════════════════════════════════════════
-// Syntax highlight (سبک)
-// ═══════════════════════════════════════════════════════════
 function syntaxHighlight(obj) {
   const json = JSON.stringify(obj, null, 2);
   return esc(json)
@@ -883,11 +623,11 @@ function syntaxHighlight(obj) {
     .replace(/:\s*(-?\d+\.?\d*)/g, ': <span class="num">$1</span>');
 }
 
-// ═══════════════════════════════════════════════════════════
-// Boot
-// ═══════════════════════════════════════════════════════════
+// ═══ Boot ═══
 loadLabs();
+loadProvider();
 setInterval(loadLabs, 3000);
+setInterval(updateApplyBtn, 1500);
 </script>
 </body>
 </html>

@@ -21,9 +21,12 @@ pub async fn serve(addr: &str, app: AppCtx) -> Result<(), Box<dyn std::error::Er
         .route("/api/lab/:idx", get(handlers::get_lab))
         .route("/api/lab/:idx/yaml", get(handlers::get_yaml).post(handlers::save_yaml))
         .route("/api/lab/:idx/run", post(handlers::run_lab))
+        .route("/api/run-all", post(handlers::run_all))
         .route("/api/lab/:idx/reports", get(handlers::list_reports))
         .route("/api/report/:exec_id", get(handlers::get_report))
         .route("/api/log", get(handlers::get_log))
+        .route("/api/provider", get(handlers::get_provider).post(handlers::set_provider))
+        .route("/api/models", get(handlers::list_models))
         .with_state(app);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;

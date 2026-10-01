@@ -73,6 +73,15 @@ struct SystemOneUsage {
 
 #[async_trait]
 impl LlmProvider for TypesafeProvider {
+    fn info(&self) -> crate::domain::ProviderInfo {
+        crate::domain::ProviderInfo {
+            kind: "typesafe",
+            model: self.model_name.clone(),
+            base_url: self.base_url.clone(),
+            is_local: false,
+        }
+    }
+
     async fn generate(&self, request: &LlmRequest) -> Result<LlmResponse, LlmError> {
         let endpoint = format!("{}/systemone", self.base_url.trim_end_matches('/'));
 

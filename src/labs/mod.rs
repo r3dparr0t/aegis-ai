@@ -1,6 +1,6 @@
 // src/labs/mod.rs
 use std::fs;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use crate::{
     domain::{ExecutionReport, LlmProvider},
@@ -18,7 +18,10 @@ pub use spec::LabSpec;
 
 /// وابستگی‌های مشترک بین همه‌ی Labها.
 pub struct LabContext {
-    pub provider: Arc<dyn LlmProvider>,
+    /// پشت RwLock چون از پنل وب قابل تعویضه (دراپ‌داون مدل). هر جا لازمه،
+    /// یه snapshot (`.read().unwrap().clone()`) بگیر، نگه‌اش ندار — چون
+    /// Arc<dyn LlmProvider> سبکه (فقط یه اشاره‌گر)، کلون‌کردنش ارزونه.
+    pub provider: RwLock<Arc<dyn LlmProvider>>,
     pub memory_repo: SqliteMemoryRepository,
     pub prefix: String,
     pub observer: crate::events::SharedObserver,
