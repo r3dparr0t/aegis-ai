@@ -1,16 +1,18 @@
 // src/main.rs
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::path::PathBuf;
 use sqlx::sqlite::SqlitePoolOptions;
 
 use aegis_ai::{
     events::{ConsoleObserver, SharedObserver},
-    labs::{self, LabContext},
+    input::prompt,
+    labs::{self, runner, Lab, LabContext, LabState},
     memory::SqliteMemoryRepository,
-    selection::select_provider,
-    selection::SelectedProvider,
-    web,
-    web::state::{CompositeObserver, SharedWebState, WebState, WebStateObserver},
+    selection::{SelectedProvider, select_provider},
+    web::{
+        self,
+        state::{CompositeObserver, SharedWebState, WebState, WebStateObserver},
+    },
 };
 
 const HOST: &str = "127.0.0.1:7777";
@@ -29,12 +31,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Aegis-AI Engine (SSRF Fuzzing Mode)\n");
     let _ = dotenvy::dotenv();
     let url = format!("http://{}", HOST);
+
     // DB
     let pool = SqlitePoolOptions::new()
         .connect("sqlite://aegis.db?mode=rwc")
         .await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
     let memory_repo = SqliteMemoryRepository::new(pool);
+
     // Provider
     let SelectedProvider { provider, is_local } = match select_provider().await {
         Some(s) => s,
@@ -54,42 +58,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("❌ No labs found in ./labs/");
         return Ok(());
     }
-    let labs = Arc::new(labs_vec); // Arc<Vec<Arc<Lab>>>
+    let labs = Arc::new(labs_vec);
 
-    // Web state (فقط لاگ زنده)
+    // Web state
     let web_state: SharedWebState = Arc::new(Mutex::new(WebState::new()));
 
-    // قفل global تک‌نفره — تنها منبع حقیقتِ «الان کدوم Lab داره اجرا می‌شه».
-    // هم CLI هم وب از همین یکی استفاده می‌کنن.
+    // قفل global
     let run_lock = Arc::new(Mutex::new(None));
 
     // Observer ترکیبی
     let composite: SharedObserver = Arc::new(CompositeObserver {
         console: ConsoleObserver,
-        web: WebStateObserver { state: web_state.clone(), run_lock: run_lock.clone() },
+        web: WebStateObserver {
+            state: web_state.clone(),
+            run_lock: run_lock.clone(),
+        },
     });
 
     // LabContext
     let ctx = Arc::new(LabContext {
-        provider: std::sync::RwLock::new(provider),
+        provider: RwLock::new(provider),
         memory_repo,
         prefix,
         observer: composite,
         run_lock: run_lock.clone(),
     });
 
-    // Web server (background)
+    // Web server
     let app_ctx = web::AppCtx {
         ctx: ctx.clone(),
         state: web_state.clone(),
         labs: labs.clone(),
         labs_dir: labs_dir.clone(),
     };
-    print_banner();
+    print_banner(&url);
 
     let _ = open::that(&url);
 
-    // سرور رو تو background اجرا کن
     let serve_ctx = app_ctx.clone();
     tokio::spawn(async move {
         if let Err(e) = web::serve(HOST, serve_ctx).await {
@@ -97,20 +102,70 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // یه لحظه صبر کن تا سرور بالا بیاد
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
     // ─── CLI (اختیاری) ───
-    // cli(labs.clone(), ctx.clone());
-    // منتظر بمون تا Ctrl+C بزنه
-    // فقط منتظر بمون تا Ctrl+C بزنه
+    // اگه --cli پاس داده شده باشه، این تابع CLI رو اجرا می‌کنه و برمی‌گرده.
+    // وگرنه فوراً برمی‌گرده. تو هر دو حالت، main فقط منتظر Ctrl+C می‌مونه.
+    cli_mode(labs.clone(), ctx.clone()).await;
+
+    // منتظر Ctrl+C
     tokio::signal::ctrl_c().await.ok();
     println!("\n  👋 Shutting down...");
     Ok(())
 }
 
+/// حالت CLI. اگه `--cli` تو args باشه فعال می‌شه، وگرنه فوراً برمی‌گرده.
+/// یه lab_id اختیاری هم قبول می‌کنه: `--cli lab1_fetch`.
+async fn cli_mode(labs: Arc<Vec<Arc<Lab>>>, ctx: Arc<LabContext>) {
+    let args: Vec<String> = std::env::args().collect();
+    let cli_mode = args.iter().any(|a| a == "--cli");
+    if !cli_mode {
+        return;
+    }
 
-fn print_banner() {
+    let cli_lab: Option<String> = args
+        .iter()
+        .skip(1)
+        .find(|a| !a.starts_with("--"))
+        .cloned();
+
+    match cli_lab {
+        Some(lab_id) => {
+            if let Some(lab) = labs.iter().find(|l| l.id() == lab_id) {
+                println!("\n  ▶  Running lab: {}", lab.name());
+                runner::run_lab(&ctx, lab, None).await;
+            } else {
+                eprintln!("❌ Lab '{}' not found", lab_id);
+                eprintln!(
+                    "   Available: {}",
+                    labs.iter().map(|l| l.id()).collect::<Vec<_>>().join(", ")
+                );
+            }
+        }
+        None => {
+            print_menu(&labs);
+            let choice = prompt("Choice", &(labs.len() + 1).to_string());
+            let all_choice = (labs.len() + 1).to_string();
+
+            if choice == all_choice {
+                for lab in labs.iter() {
+                    runner::run_lab(&ctx, lab, None).await;
+                }
+            } else if let Ok(idx) = choice.parse::<usize>() {
+                if idx >= 1 && idx <= labs.len() {
+                    runner::run_lab(&ctx, &labs[idx - 1], None).await;
+                }
+            } else if let Some(lab) = labs.iter().find(|l| l.id() == choice) {
+                runner::run_lab(&ctx, lab, None).await;
+            }
+        }
+    }
+
+    println!("\n  ✓ CLI done. Web panel still at {}", format!("http://{}", HOST));
+}
+
+fn print_banner(url: &str) {
     println!(
         r#"
     _    _____ ____ ___ ____  
@@ -119,12 +174,13 @@ fn print_banner() {
  / ___ \| |__| |_| || | ___) |
 /_/   \_\_____\____|___|____/ 
  SSRF Fuzzing Engine 🔴🟡🟢⚪
-═════════════════════════════════════════"#);
-    println!("  🛡 Web panel live at {}", format!("http://{}", HOST));
-    println!("  ✓ Ctrl+C to exit\n");
+═════════════════════════════════════════"#
+    );
+    println!("  🛡  Web panel live at {}", url);
+    println!("  ⌨️  CLI mode: cargo run -- --cli [lab_id]");
+    println!("  ✓  Ctrl+C to exit\n");
 }
 
-/* 
 fn print_menu(labs: &[Arc<Lab>]) {
     println!("\nWhich lab do you want to run?");
     for (i, lab) in labs.iter().enumerate() {
@@ -142,40 +198,3 @@ fn print_menu(labs: &[Arc<Lab>]) {
     println!("  {}) All labs", labs.len() + 1);
     println!("  (or type a lab id, e.g. 'lab1_fetch')");
 }
-
-fn cli(labs_for_cli: Arc<Vec<Arc<Lab>>>, ctx_for_cli:Arc<LabContext> ){
-    // کاربر می‌تونه از CLI هم استفاده کنه، ولی پیش‌فرض اینه که فقط
-    // web panel فعاله. اگه Enter بزنه، CLI ادامه نمی‌ده — یه تسک
-    // جدا تو background منتظر Enter می‌مونه.
-    tokio::spawn(async move {
-        tokio::task::spawn_blocking(move || {
-            println!();
-            println!("  ─────────────────────────────────────────");
-            println!("  💻  CLI mode — press Enter to enable");
-            println!("  ─────────────────────────────────────────");
-            let mut buf = String::new();
-            std::io::stdin().read_line(&mut buf).ok();
-
-            // کاربر Enter زد → CLI فعال شه
-            let rt = tokio::runtime::Handle::current();
-            rt.block_on(async move {
-                print_menu(&labs_for_cli);
-                let choice = prompt("Choice", &(labs_for_cli.len() + 1).to_string());
-                let all_choice = (labs_for_cli.len() + 1).to_string();
-                if choice == all_choice {
-                    for lab in labs_for_cli.iter() {
-                        runner::run_lab(&ctx_for_cli, lab, None).await;
-                    }
-                } else if let Ok(idx) = choice.parse::<usize>() {
-                    if idx >= 1 && idx <= labs_for_cli.len() {
-                        runner::run_lab(&ctx_for_cli, &labs_for_cli[idx - 1], None).await;
-                    }
-                } else if let Some(lab) = labs_for_cli.iter().find(|l| l.id() == choice) {
-                    runner::run_lab(&ctx_for_cli, lab, None).await;
-                }
-            });
-        });
-    });
-
-}
-*/

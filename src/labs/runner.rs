@@ -5,7 +5,6 @@ use crate::{
     domain::LlmProvider,
     engine::ExecutionEngine,
     provider::OllamaProvider,
-    //selection::choose_ollama_model,
 };
 
 use super::{lab::Lab, run_task, LabContext};
