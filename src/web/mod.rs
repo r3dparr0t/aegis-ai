@@ -24,6 +24,7 @@ pub async fn serve(addr: &str, app: AppCtx) -> Result<(), Box<dyn std::error::Er
     let router = Router::new()
         .route("/", get(handlers::index))
         .route("/api/labs", get(handlers::list_labs))
+        .route("/api/lab/:idx/delete", post(handlers::delete_lab))
         .route("/api/lab/new", post(handlers::create_lab))
         .route("/api/lab/:idx", get(handlers::get_lab))
         .route("/api/lab/:idx/yaml", get(handlers::get_yaml).post(handlers::save_yaml))

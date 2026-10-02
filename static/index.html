@@ -17,6 +17,7 @@
   html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;overflow:hidden}
   .app{display:grid;grid-template-columns:320px 1fr;height:100vh}
 
+  /* ═══ Sidebar ═══ */
   .sidebar{background:var(--panel-2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
   .brand{padding:18px 22px 14px;border-bottom:1px solid var(--border)}
   .brand h1{font-size:15px;font-weight:700;letter-spacing:0.5px;display:flex;align-items:center;gap:8px}
@@ -68,6 +69,7 @@
   .lab-mini-bar{margin-top:8px;height:4px;background:var(--border);border-radius:2px;overflow:hidden}
   .lab-mini-fill{height:100%;transition:width 0.4s ease,background 0.4s ease;min-width:2px}
 
+  /* ═══ Main ═══ */
   .main{display:flex;flex-direction:column;overflow:hidden}
   .main-header{padding:20px 32px;border-bottom:1px solid var(--border);background:var(--panel-2);display:flex;align-items:center;justify-content:space-between;gap:16px}
   .main-title h2{font-size:17px;font-weight:600;margin-bottom:3px}
@@ -90,6 +92,8 @@
   button:disabled{opacity:0.4;cursor:not-allowed}
   button.primary{background:var(--green);border-color:var(--green);color:white}
   button.primary:hover:not(:disabled){background:#4acd5f;border-color:#4acd5f}
+  button.danger{background:transparent;border-color:var(--red);color:var(--red)}
+  button.danger:hover:not(:disabled){background:var(--red);border-color:var(--red);color:white}
   .actions{display:flex;gap:8px;padding:0 32px 16px;flex-wrap:wrap}
 
   .info-grid{display:grid;grid-template-columns:1fr;gap:20px}
@@ -115,10 +119,11 @@
   .attempt-note{margin-top:12px;font-size:12px;color:var(--text-dim);font-style:italic}
 
   .editor-wrap{display:flex;flex-direction:column;gap:12px}
-  .editor-toolbar{display:flex;gap:8px;align-items:center}
+  .editor-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .editor-status{font-size:12px;color:var(--text-dim);font-family:var(--mono);margin-left:4px}
   textarea.yaml-editor{width:100%;min-height:600px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:16px;font-family:var(--mono);font-size:12.5px;line-height:1.65;resize:vertical;tab-size:2}
   textarea.yaml-editor:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(78,161,255,0.1)}
+  .editor-hint{font-size:11px;color:var(--text-faint);margin-top:2px}
 
   .report-list{display:flex;flex-direction:column;gap:6px}
   .report-item{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:12px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;transition:all 0.1s}
@@ -150,17 +155,23 @@
   .modal-overlay.hidden{display:none}
   .modal{
     background:var(--panel);border:1px solid var(--border-2);
-    border-radius:10px;padding:24px;min-width:420px;max-width:520px;
+    border-radius:10px;padding:24px;min-width:440px;max-width:540px;
     box-shadow:0 20px 60px rgba(0,0,0,0.7);
+    max-height:90vh;overflow-y:auto;
   }
   .modal h3{font-size:15px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
   .modal label{display:block;font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:6px;margin-top:12px}
-  .modal input{
+  .modal input,.modal select{
     width:100%;background:var(--panel-2);color:var(--text);
     border:1px solid var(--border-2);border-radius:6px;
     padding:8px 12px;font-size:13px;font-family:var(--mono);
   }
-  .modal input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(78,161,255,0.1)}
+  .modal select{
+    appearance:none;cursor:pointer;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path fill='%238b98a9' d='M5 7L1 3h8z'/></svg>");
+    background-repeat:no-repeat;background-position:right 10px center;padding-right:28px;
+  }
+  .modal input:focus,.modal select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(78,161,255,0.1)}
   .modal .hint{font-size:11px;color:var(--text-faint);margin-top:4px;font-family:var(--mono)}
   .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
   .modal-error{color:var(--red);font-size:12px;margin-top:10px;font-family:var(--mono);min-height:18px}
@@ -195,7 +206,7 @@
       <div class="labs-header">
         <span class="lbl">Labs</span>
         <div class="actions">
-          <button onclick="openNewLabModal()" title="Create a new lab">New Lab +</button>
+          <button onclick="openNewLabModal()" title="Create a new lab">+ New</button>
           <button onclick="runAll()" title="Run all labs sequentially">▶ Run all</button>
         </div>
       </div>
@@ -219,17 +230,36 @@
     <h3>➕ Create a new lab</h3>
 
     <label for="new-id">ID <span style="color:var(--red)">*</span></label>
-    <input id="new-id" placeholder="lab6_apache_traversal" autocomplete="off">
-    <div class="hint">a-z, 0-9, _ and - only</div>
+    <input id="new-id" placeholder="cve_2021_41773_apache" autocomplete="off">
+    <div class="hint">a-z, 0-9, _ and - only · must be unique</div>
 
     <label for="new-name">Name <span style="color:var(--red)">*</span></label>
-    <input id="new-name" placeholder="Lab 6 — Apache path traversal" autocomplete="off">
+    <input id="new-name" placeholder="CVE-2021-41773 — Apache path traversal" autocomplete="off">
 
     <label for="new-description">Description</label>
-    <input id="new-description" placeholder="CVE-2021-41773 — Apache 2.4.49 path traversal" autocomplete="off">
+    <input id="new-description" placeholder="" autocomplete="off">
+
+    <label for="new-kind">Kind</label>
+    <select id="new-kind" onchange="onKindChange()">
+      <option value="ssrf_json">SSRF JSON — POST JSON with endpoint + body</option>
+      <option value="raw">Raw HTTP — arbitrary method / path / body (for CVEs)</option>
+    </select>
 
     <label for="new-url">Target URL</label>
     <input id="new-url" value="http://localhost:5000/api/v1/fetch" autocomplete="off">
+
+    <div id="field-body-key">
+      <label for="new-body-key">Body key</label>
+      <input id="new-body-key" value="url" autocomplete="off">
+    </div>
+
+    <div id="field-method" style="display:none">
+      <label for="new-method">Default method</label>
+      <select id="new-method">
+        <option>POST</option>
+        <option>GET</option>
+      </select>
+    </div>
 
     <label for="new-max">Max attempts</label>
     <input id="new-max" type="number" value="5" min="1" max="50">
@@ -246,7 +276,9 @@
 <div class="toast" id="toast"></div>
 
 <script>
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════════════
 let labs = [];
 let currentIdx = null;
 let currentTab = 'overview';
@@ -288,9 +320,13 @@ function stateLabel(s) {
   return s.kind;
 }
 
+// ─── Attempt color gradient ───
 const ATTEMPT_STOPS = [
-  [0.00,[ 63,185, 80]],[0.50,[210,153, 34]],[0.75,[248, 81, 73]],
-  [0.90,[139, 69, 19]],[1.00,[163,113,247]],
+  [0.00,[ 63,185, 80]],  // green
+  [0.50,[210,153, 34]],  // yellow
+  [0.75,[248, 81, 73]],  // red
+  [0.90,[139, 69, 19]],  // brown
+  [1.00,[163,113,247]],  // purple
 ];
 function attemptColor(ratio) {
   ratio = Math.max(0, Math.min(1, ratio));
@@ -320,7 +356,9 @@ function attemptsUsed(status) {
   return 0;
 }
 
-// ═══ Labs ═══
+// ═══════════════════════════════════════════════════════════════
+// Labs
+// ═══════════════════════════════════════════════════════════════
 async function loadLabs() {
   try {
     const r = await fetch('/api/labs');
@@ -372,7 +410,9 @@ function updateHeaderStatus() {
   }
 }
 
-// ═══ Provider / Model ═══
+// ═══════════════════════════════════════════════════════════════
+// Provider / Model
+// ═══════════════════════════════════════════════════════════════
 async function loadProvider() {
   try {
     const r = await fetch('/api/provider');
@@ -439,14 +479,33 @@ async function runAll() {
   else toast('Failed to start', true);
 }
 
-// ═══ New Lab Modal ═══
+// ═══════════════════════════════════════════════════════════════
+// New Lab Modal
+// ═══════════════════════════════════════════════════════════════
+function onKindChange() {
+  const kind = $('new-kind').value;
+  const isRaw = kind === 'raw';
+  $('field-body-key').style.display = isRaw ? 'none' : 'block';
+  $('field-method').style.display = isRaw ? 'block' : 'none';
+  const urlField = $('new-url');
+  if (isRaw && urlField.value === 'http://localhost:5000/api/v1/fetch') {
+    urlField.value = 'http://localhost:8080';
+  } else if (!isRaw && urlField.value === 'http://localhost:8080') {
+    urlField.value = 'http://localhost:5000/api/v1/fetch';
+  }
+}
+
 function openNewLabModal() {
   $('new-id').value = '';
   $('new-name').value = '';
   $('new-description').value = '';
+  $('new-kind').value = 'ssrf_json';
   $('new-url').value = 'http://localhost:5000/api/v1/fetch';
+  $('new-body-key').value = 'url';
+  $('new-method').value = 'POST';
   $('new-max').value = '5';
   $('modal-error').textContent = '';
+  onKindChange();
   $('new-lab-modal').classList.remove('hidden');
   setTimeout(() => $('new-id').focus(), 50);
 }
@@ -456,18 +515,30 @@ function closeNewLabModal() {
 }
 
 async function submitNewLab() {
-  const id = $('new-id').value.trim();
-  const name = $('new-name').value.trim();
-  const description = $('new-description').value.trim();
-  const target_url = $('new-url').value.trim();
-  const max_attempts = parseInt($('new-max').value) || 5;
+  const kind = $('new-kind').value;
+  const body = {
+    id: $('new-id').value.trim().toLowerCase(),
+    name: $('new-name').value.trim(),
+    description: $('new-description').value.trim(),
+    kind: kind,
+    target_url: $('new-url').value.trim(),
+    max_attempts: parseInt($('new-max').value) || 5,
+  };
+  if (kind === 'ssrf_json') body.body_key = $('new-body-key').value.trim() || 'url';
+  if (kind === 'raw') body.method = $('new-method').value;
 
-  if (!id) { $('modal-error').textContent = 'ID is required'; return; }
-  if (!/^[a-z0-9_-]+$/.test(id)) {
+  if (!body.id) { $('modal-error').textContent = 'ID is required'; return; }
+  if (!/^[a-z0-9_-]+$/.test(body.id)) {
     $('modal-error').textContent = 'ID must be lowercase a-z, 0-9, _ or - only';
     return;
   }
-  if (!name) { $('modal-error').textContent = 'Name is required'; return; }
+  if (!body.name) { $('modal-error').textContent = 'Name is required'; return; }
+
+  // پیش‌چک سمت کلاینت برای یکتا بودن
+  if (labs.some(l => l.id === body.id)) {
+    $('modal-error').textContent = `Lab '${body.id}' already exists`;
+    return;
+  }
 
   $('modal-error').textContent = 'creating...';
 
@@ -475,16 +546,14 @@ async function submitNewLab() {
     const r = await fetch('/api/lab/new', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, name, description, target_url, max_attempts }),
+      body: JSON.stringify(body),
     });
     if (r.ok) {
       const data = await r.json();
       closeNewLabModal();
       toast('Lab created: ' + data.id);
       await loadLabs();
-      if (typeof data.index === 'number') {
-        await openLab(data.index);
-      }
+      if (typeof data.index === 'number') await openLab(data.index);
     } else {
       const err = await r.text();
       $('modal-error').textContent = err.slice(0, 120);
@@ -500,7 +569,9 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// ═══ Open Lab ═══
+// ═══════════════════════════════════════════════════════════════
+// Open Lab
+// ═══════════════════════════════════════════════════════════════
 async function openLab(idx) {
   currentIdx = idx;
   currentTab = 'overview';
@@ -554,6 +625,7 @@ async function renderTabBody() {
   const el = $('tab-body');
   if (!el) return;
 
+  // ─── Overview ───
   if (currentTab === 'overview') {
     const lab = labs[currentIdx];
     const maxA = lab.max_attempts || 5;
@@ -595,7 +667,7 @@ async function renderTabBody() {
         <div class="info-card">
           <h3>Target</h3>
           <div class="info-row"><span class="k">Vulnerable URL</span><span class="v">${esc(lab.url)}</span></div>
-          <div class="info-row"><span class="k">Internal target</span><span class="v">${esc(lab.target)}</span></div>
+          ${lab.target ? `<div class="info-row"><span class="k">Internal target</span><span class="v">${esc(lab.target)}</span></div>` : ''}
           <div class="info-row"><span class="k">Max attempts</span><span class="v">${maxA}</span></div>
         </div>
         ${lab.description ? `
@@ -607,20 +679,26 @@ async function renderTabBody() {
     return;
   }
 
+  // ─── YAML ───
   if (currentTab === 'yaml') {
     el.innerHTML = `
       <div class="editor-wrap">
         <div class="editor-toolbar">
           <button class="primary" onclick="saveYaml()">💾 Save</button>
           <button onclick="reloadYaml()">↻ Reload</button>
+          <button class="danger" onclick="deleteCurrentLab()">🗑 Delete Lab</button>
           <span class="editor-status" id="yaml-status"></span>
         </div>
         <textarea class="yaml-editor" id="yaml-editor" spellcheck="false"></textarea>
+        <div class="editor-hint">
+          Changing <code>meta.id</code> renames the YAML file on disk (must be unique).
+        </div>
       </div>`;
     await reloadYaml();
     return;
   }
 
+  // ─── Reports list ───
   if (currentTab === 'reports') {
     el.innerHTML = '<div class="empty"><div class="msg">Loading reports...</div></div>';
     try {
@@ -641,6 +719,7 @@ async function renderTabBody() {
     return;
   }
 
+  // ─── Report detail ───
   if (currentTab === 'report-detail') {
     el.innerHTML = '<div class="empty"><div class="msg">Loading...</div></div>';
     try {
@@ -684,6 +763,9 @@ function startPolling() {
   }, 1000);
 }
 
+// ═══════════════════════════════════════════════════════════════
+// YAML save / reload / delete
+// ═══════════════════════════════════════════════════════════════
 async function reloadYaml() {
   const el = $('yaml-editor');
   if (!el) return;
@@ -711,6 +793,7 @@ async function saveYaml() {
       if (st) { st.textContent = '✓ saved'; st.style.color = 'var(--green)'; }
       toast('Saved');
       setTimeout(() => { if (st) st.textContent = ''; }, 2000);
+      await loadLabs();
     } else {
       const err = await r.text();
       if (st) { st.textContent = '✗ ' + err.slice(0,80); st.style.color = 'var(--red)'; }
@@ -721,6 +804,33 @@ async function saveYaml() {
   }
 }
 
+async function deleteCurrentLab() {
+  if (currentIdx === null) return;
+  const lab = labs[currentIdx];
+  if (!lab) return;
+  if (!confirm(`Delete lab "${lab.name}"?\n\nThis will remove its YAML file from disk.`)) return;
+
+  try {
+    const r = await fetch(`/api/lab/${currentIdx}/delete`, { method: 'POST' });
+    if (r.ok) {
+      toast('Lab deleted');
+      currentIdx = null;
+      currentTab = 'overview';
+      $('main-content').innerHTML = `
+        <div class="empty">
+          <div class="icon">🛡</div>
+          <div class="msg">Select a lab from the sidebar</div>
+        </div>`;
+      await loadLabs();
+    } else {
+      const err = await r.text();
+      toast(err.slice(0, 80), true);
+    }
+  } catch (e) {
+    toast('Delete failed', true);
+  }
+}
+
 async function viewReport(execId) {
   currentReport = execId;
   currentTab = 'report-detail';
@@ -728,6 +838,9 @@ async function viewReport(execId) {
   await renderTabBody();
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Syntax highlight (light)
+// ═══════════════════════════════════════════════════════════════
 function syntaxHighlight(obj) {
   const json = JSON.stringify(obj, null, 2);
   return esc(json)
@@ -739,7 +852,9 @@ function syntaxHighlight(obj) {
     .replace(/:\s*(-?\d+\.?\d*)/g, ': <span class="num">$1</span>');
 }
 
-// ═══ Boot ═══
+// ═══════════════════════════════════════════════════════════════
+// Boot
+// ═══════════════════════════════════════════════════════════════
 loadLabs();
 loadProvider();
 setInterval(loadLabs, 3000);

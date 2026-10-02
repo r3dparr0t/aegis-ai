@@ -8,6 +8,7 @@ meta:
 max_attempts: 5
 
 target:
+  kind: ssrf_json
   url: http://localhost:5000/api/v4/blind-time
   body_key: target_url
 

@@ -1,13 +1,12 @@
 // src/labs/spec.rs
-use serde::{Deserialize, Serialize};   
+use std::collections::HashMap;
 
-/// آدرس واقعی سرویس داخلی (internal-admin) که این لب باید بهش برسه.
-/// این تنها منبع حقیقت برای host/port/path است — system_prompt دیگه این‌ها رو
-/// هاردکد نمی‌کنه، بلکه با placeholder بهشون اشاره می‌کنه (نگاه کن به runner.rs).
+use serde::{Deserialize, Serialize};
+
+/// آدرس داخلی (internal-admin) — فقط برای SSRF labها لازمه.
+/// برای CVEهای غیر-SSRF می‌تونه غایب باشه.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct InternalTargetSpec {
-    /// هاست یا IP سرویس داخلی، مثلاً "internal-admin" یا "172.28.0.10"
-    /// (Lab 4 عمداً IP خام می‌ذاره چون هدف خودِ لب، بای‌پس کردن فیلتر هاست‌نیمه)
     pub host: String,
     pub port: u16,
     pub path: String,
@@ -18,12 +17,15 @@ impl InternalTargetSpec {
         format!("http://{}:{}{}", self.host, self.port, self.path)
     }
 }
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LabSpec {
     pub meta: LabMeta,
-    pub max_attempts: u32,  
+    pub max_attempts: u32,
     pub target: TargetSpec,
-    pub internal_target: InternalTargetSpec,
+    /// اختیاری — فقط اگه `system_prompt` از `{{target_url}}` استفاده کنه لازمه.
+    #[serde(default)]
+    pub internal_target: Option<InternalTargetSpec>,
     pub task: TaskSpec,
     pub evaluator: EvaluatorSpec,
     pub system_prompt: String,
@@ -44,24 +46,64 @@ pub struct LabMeta {
     pub enabled: bool,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Target: دو حالت — ssrf_json یا raw
+// ═══════════════════════════════════════════════════════════════
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct TargetSpec {
-    pub url: String,
-    #[serde(default)]
-    pub body_key: String,
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TargetSpec {
+    /// SSRF lab: مدل `{"endpoint": "...", "body": {...}}` می‌ده،
+    /// executor یه POST JSON به `{url}{endpoint}` می‌زنه.
+    SsrfJson {
+        /// base URL اپ آسیب‌پذیر (مثلاً http://localhost:5000)
+        url: String,
+        /// کلید body که مدل باید بذاره (مثلاً "url" یا "target_url")
+        #[serde(default)]
+        body_key: String,
+    },
+    /// Raw HTTP: مدل `{"method": "...", "path": "...", "body": "..."}` می‌ده،
+    /// executor عیناً همون رو می‌فرسته. برای CVEها.
+    Raw {
+        /// base URL (مثلاً http://localhost:8080) — path از payload اضافه می‌شه
+        url: String,
+        /// متد پیش‌فرض اگه مدل نداده باشه
+        #[serde(default = "default_method")]
+        method: String,
+        /// هدرهای ثابت که به همه‌ی درخواست‌ها اضافه می‌شن
+        #[serde(default)]
+        headers: HashMap<String, String>,
+    },
+}
+
+fn default_method() -> String {
+    "POST".to_string()
 }
 
 impl TargetSpec {
-    /// URL رو به (base, path) تقسیم می‌کنه برای HttpTargetExecutor.
-    /// مثلاً http://localhost:5000/api/v1/fetch
-    ///   → ("http://localhost:5000", "/api/v1/fetch")
+    pub fn base_url(&self) -> &str {
+        match self {
+            TargetSpec::SsrfJson { url, .. } => url,
+            TargetSpec::Raw { url, .. } => url,
+        }
+    }
+
+    /// برای ssrf_json: `(base, path)` جدا می‌شه چون executor فقط یه endpoint
+    /// محدود قبول می‌کنه. برای raw: هیچ محدودیتی نیست.
     pub fn split_base_path(&self) -> Option<(String, String)> {
-        let parsed = url::Url::parse(&self.url).ok()?;
-        let base = format!("{}://{}", parsed.scheme(), parsed.authority());
-        let path = parsed.path().to_string();
-        Some((base, path))
+        match self {
+            TargetSpec::SsrfJson { url, .. } => {
+                let parsed = url::Url::parse(url).ok()?;
+                let base = format!("{}://{}", parsed.scheme(), parsed.authority());
+                let path = parsed.path().to_string();
+                Some((base, path))
+            }
+            TargetSpec::Raw { url, .. } => Some((url.clone(), String::new())),
+        }
     }
 }
 
@@ -78,6 +120,7 @@ pub struct TaskSpec {
 pub enum EvaluatorSpec {
     Flag { marker: String },
     TimeDelay { threshold_ms: u64 },
+    Regex { pattern: String },
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]

@@ -8,7 +8,8 @@ meta:
 max_attempts: 5
 
 target:
-  url: http://localhost:5000/api/v1/fetch
+  kind: ssrf_json
+  url: "http://localhost:5000/api/v1/fetch"
   body_key: url
 
 internal_target:

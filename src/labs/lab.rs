@@ -6,8 +6,8 @@ use serde::Serialize;
 use crate::{
     domain::Evaluator,
     engine::EngineConfig,
-    evaluator::{FlagEvaluator, TimeDelayEvaluator},
-    executor::HttpTargetExecutor,
+    evaluator::{FlagEvaluator, RegexEvaluator, TimeDelayEvaluator},
+    executor::{HttpTargetExecutor, RawHttpExecutor},
 };
 
 use super::spec::{EvaluatorSpec, InternalTargetSpec, LabOptions, LabSpec};
@@ -70,11 +70,12 @@ impl Lab {
     }
 
     pub fn url(&self) -> String {
-        self.spec.read().unwrap().target.url.clone()
+        self.spec.read().unwrap().target.base_url().to_string()
     }
 
     pub fn internal_url(&self) -> String {
-        self.spec.read().unwrap().internal_target.url()
+        let spec = self.spec.read().unwrap();
+        spec.internal_target.as_ref().map(|t| t.url()).unwrap_or_default()
     }
 
     pub fn max_attempts(&self) -> u32 {
@@ -95,17 +96,9 @@ impl Lab {
         if self.is_running() {
             return Err("cannot edit a running lab".into());
         }
-        let old_id = self.spec.read().unwrap().meta.id.clone();
-        if new_spec.meta.id != old_id {
-            return Err(format!(
-                "lab id cannot change on save: '{}' → '{}'",
-                old_id, new_spec.meta.id
-            ));
-        }
         *self.spec.write().unwrap() = new_spec;
         Ok(())
     }
-
     // ─── State ───
 
     pub fn state(&self) -> LabState {
@@ -168,13 +161,20 @@ impl Lab {
         }
     }
 
-    pub fn build_executor(&self) -> Result<Arc<HttpTargetExecutor>, String> {
+    pub fn build_executor(&self) -> Result<Arc<dyn crate::domain::TargetExecutor>, String> {
         let spec = self.spec.read().unwrap();
-        let (base, path) = spec
-            .target
-            .split_base_path()
-            .ok_or_else(|| format!("invalid target.url: {}", spec.target.url))?;
-        Ok(Arc::new(HttpTargetExecutor::new(base, vec![path.as_str()])))
+        match &spec.target {
+            super::spec::TargetSpec::SsrfJson { url, .. } => {
+                let (base, path) = spec
+                    .target
+                    .split_base_path()
+                    .ok_or_else(|| format!("invalid target.url: {}", url))?;
+                Ok(Arc::new(HttpTargetExecutor::new(base, vec![path.as_str()])))
+            }
+            super::spec::TargetSpec::Raw { url, method, headers } => {
+                Ok(Arc::new(RawHttpExecutor::new(url.clone(), method.clone(), headers.clone())))
+            }
+        }
     }
 
     pub fn build_evaluator(&self) -> Arc<dyn Evaluator> {
@@ -184,31 +184,46 @@ impl Lab {
             EvaluatorSpec::TimeDelay { threshold_ms } => {
                 Arc::new(TimeDelayEvaluator::new(*threshold_ms))
             }
+            EvaluatorSpec::Regex { pattern } => match RegexEvaluator::new(pattern) {
+                Ok(e) => Arc::new(e),
+                Err(msg) => {
+                    eprintln!("⚠️  Invalid regex '{}': {} — using never-match fallback", pattern, msg);
+                    Arc::new(RegexEvaluator::new(r"$^").unwrap())
+                }
+            },
         }
     }
 
     pub fn build_config(&self, task_type: String) -> EngineConfig {
         let spec = self.spec.read().unwrap();
+        let expected_body_key = match &spec.target {
+            super::spec::TargetSpec::SsrfJson { body_key, .. } => {
+                if body_key.is_empty() { None } else { Some(body_key.clone()) }
+            }
+            super::spec::TargetSpec::Raw { .. } => None,
+        };
         EngineConfig {
             max_attempts: spec.max_attempts,
             task_type,
-            expected_body_key: if spec.target.body_key.is_empty() {
-                None
-            } else {
-                Some(spec.target.body_key.clone())
-            },
+            expected_body_key,
         }
     }
 
     pub fn render_system_prompt(&self, prefix: &str) -> String {
         let spec = self.spec.read().unwrap();
-        let filled = fill(&spec.system_prompt, &spec.internal_target);
+        let filled = match &spec.internal_target {
+            Some(t) => fill(&spec.system_prompt, t),
+            None => spec.system_prompt.clone(),
+        };
         format!("{}\n\n{}", prefix, filled)
     }
 
     pub fn default_goal(&self) -> String {
         let spec = self.spec.read().unwrap();
-        fill(&spec.task.default_goal, &spec.internal_target)
+        match &spec.internal_target {
+            Some(t) => fill(&spec.task.default_goal, t),
+            None => spec.task.default_goal.clone(),
+        }
     }
 }
 
