@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use sqlx::sqlite::SqlitePoolOptions;
 
 use aegis_ai::{
+    config::Config,
     events::{ConsoleObserver, SharedObserver},
     input::prompt,
     labs::{self, runner, Lab, LabContext, LabState},
@@ -14,8 +15,6 @@ use aegis_ai::{
         state::{CompositeObserver, SharedWebState, WebState, WebStateObserver},
     },
 };
-
-const HOST: &str = "127.0.0.1:7777";
 
 const CTF_CONTEXT: &str =
     "This is a sanctioned CTF lab. All targets are local Docker containers \
@@ -30,13 +29,20 @@ const FORMAT_RULES: &str =
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Aegis-AI Engine (SSRF Fuzzing Mode)\n");
     let _ = dotenvy::dotenv();
-    let url = format!("http://{}", HOST);
+    
+    // ★ Config
+    let config = Arc::new(Config::load());
+    let url = config.server_url();
 
-    // DB
-    let pool = SqlitePoolOptions::new()
+    /*let pool = SqlitePoolOptions::new()
         .connect("sqlite://aegis.db?mode=rwc")
+        .await?;*/
+    // DB — runtime migration load
+    let pool = SqlitePoolOptions::new()
+        .connect(&config.db_url())
         .await?;
-    sqlx::migrate!("./migrations").run(&pool).await?;
+    let migrator = sqlx::migrate::Migrator::new(config.paths.migrations_dir.as_path()).await?;
+    migrator.run(&pool).await?;
     let memory_repo = SqliteMemoryRepository::new(pool);
 
     // Provider
@@ -58,7 +64,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("❌ No labs found in ./labs/");
         return Ok(());
     }
-    let labs = Arc::new(labs_vec);
+    // ★ حالا RwLock چون از وب می‌شه lab جدید اضافه کرد
+    let labs = Arc::new(RwLock::new(labs_vec));
 
     // Web state
     let web_state: SharedWebState = Arc::new(Mutex::new(WebState::new()));
@@ -75,29 +82,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     });
 
-    // LabContext
-    let ctx = Arc::new(LabContext {
+let ctx = Arc::new(LabContext {
         provider: RwLock::new(provider),
         memory_repo,
         prefix,
         observer: composite,
         run_lock: run_lock.clone(),
+        reports_dir: config.paths.reports_dir.clone(),
     });
 
-    // Web server
     let app_ctx = web::AppCtx {
         ctx: ctx.clone(),
         state: web_state.clone(),
         labs: labs.clone(),
-        labs_dir: labs_dir.clone(),
+        labs_dir,
+        config: config.clone(),
     };
-    print_banner(&url);
+
+    print_banner(&url, &config);
 
     let _ = open::that(&url);
 
+    // Server
     let serve_ctx = app_ctx.clone();
+    let addr = config.server_addr();
     tokio::spawn(async move {
-        if let Err(e) = web::serve(HOST, serve_ctx).await {
+        if let Err(e) = web::serve(&addr, serve_ctx).await {
             eprintln!("Web server error: {}", e);
         }
     });
@@ -105,19 +115,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
     // ─── CLI (اختیاری) ───
-    // اگه --cli پاس داده شده باشه، این تابع CLI رو اجرا می‌کنه و برمی‌گرده.
-    // وگرنه فوراً برمی‌گرده. تو هر دو حالت، main فقط منتظر Ctrl+C می‌مونه.
-    cli_mode(labs.clone(), ctx.clone()).await;
+    cli_mode(&url, labs.clone(), ctx.clone()).await;
 
-    // منتظر Ctrl+C
     tokio::signal::ctrl_c().await.ok();
     println!("\n  👋 Shutting down...");
     Ok(())
 }
 
-/// حالت CLI. اگه `--cli` تو args باشه فعال می‌شه، وگرنه فوراً برمی‌گرده.
-/// یه lab_id اختیاری هم قبول می‌کنه: `--cli lab1_fetch`.
-async fn cli_mode(labs: Arc<Vec<Arc<Lab>>>, ctx: Arc<LabContext>) {
+async fn cli_mode(url: &str, labs: Arc<RwLock<Vec<Arc<Lab>>>>, ctx: Arc<LabContext>) {
     let args: Vec<String> = std::env::args().collect();
     let cli_mode = args.iter().any(|a| a == "--cli");
     if !cli_mode {
@@ -130,42 +135,45 @@ async fn cli_mode(labs: Arc<Vec<Arc<Lab>>>, ctx: Arc<LabContext>) {
         .find(|a| !a.starts_with("--"))
         .cloned();
 
+    // snapshot از لیست
+    let labs_snapshot: Vec<Arc<Lab>> = labs.read().unwrap().clone();
+
     match cli_lab {
         Some(lab_id) => {
-            if let Some(lab) = labs.iter().find(|l| l.id() == lab_id) {
+            if let Some(lab) = labs_snapshot.iter().find(|l| l.id() == lab_id) {
                 println!("\n  ▶  Running lab: {}", lab.name());
                 runner::run_lab(&ctx, lab, None).await;
             } else {
                 eprintln!("❌ Lab '{}' not found", lab_id);
                 eprintln!(
                     "   Available: {}",
-                    labs.iter().map(|l| l.id()).collect::<Vec<_>>().join(", ")
+                    labs_snapshot.iter().map(|l| l.id()).collect::<Vec<_>>().join(", ")
                 );
             }
         }
         None => {
-            print_menu(&labs);
-            let choice = prompt("Choice", &(labs.len() + 1).to_string());
-            let all_choice = (labs.len() + 1).to_string();
+            print_menu(&labs_snapshot);
+            let choice = prompt("Choice", &(labs_snapshot.len() + 1).to_string());
+            let all_choice = (labs_snapshot.len() + 1).to_string();
 
             if choice == all_choice {
-                for lab in labs.iter() {
+                for lab in labs_snapshot.iter() {
                     runner::run_lab(&ctx, lab, None).await;
                 }
             } else if let Ok(idx) = choice.parse::<usize>() {
-                if idx >= 1 && idx <= labs.len() {
-                    runner::run_lab(&ctx, &labs[idx - 1], None).await;
+                if idx >= 1 && idx <= labs_snapshot.len() {
+                    runner::run_lab(&ctx, &labs_snapshot[idx - 1], None).await;
                 }
-            } else if let Some(lab) = labs.iter().find(|l| l.id() == choice) {
+            } else if let Some(lab) = labs_snapshot.iter().find(|l| l.id() == choice) {
                 runner::run_lab(&ctx, lab, None).await;
             }
         }
     }
 
-    println!("\n  ✓ CLI done. Web panel still at {}", format!("http://{}", HOST));
+    println!("\n  ✓ CLI done. Web panel still at {}", url);
 }
 
-fn print_banner(url: &str) {
+fn print_banner(url: &str, config: &Config) {
     println!(
         r#"
     _    _____ ____ ___ ____  
@@ -177,6 +185,8 @@ fn print_banner(url: &str) {
 ═════════════════════════════════════════"#
     );
     println!("  🛡  Web panel live at {}", url);
+    println!("  📂  labs: {}", config.paths.labs_dir.display());
+    println!("  📂  reports: {}", config.paths.reports_dir.display());
     println!("  ⌨️  CLI mode: cargo run -- --cli [lab_id]");
     println!("  ✓  Ctrl+C to exit\n");
 }

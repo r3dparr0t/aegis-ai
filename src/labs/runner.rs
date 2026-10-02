@@ -62,6 +62,7 @@ async fn execute_lab(
         &engine,
         &ctx.memory_repo,
         &ctx.observer,
+        &ctx.reports_dir,
         lab,
         &system_prompt,
         &user_input,

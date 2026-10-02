@@ -26,6 +26,7 @@ pub struct LabContext {
     pub prefix: String,
     pub observer: crate::events::SharedObserver,
     pub run_lock: RunLock,
+    pub reports_dir: std::path::PathBuf,
 }
 
 /// اجرای یه Lab و برگرداندن (success, attempts).
@@ -33,6 +34,7 @@ pub async fn run_task(
     engine: &ExecutionEngine,
     memory_repo: &SqliteMemoryRepository,
     observer: &crate::events::SharedObserver,
+    reports_dir: &std::path::Path,
     lab: &Lab,
     system_prompt: &str,
     user_input: &str,
@@ -50,11 +52,11 @@ pub async fn run_task(
 
     let (success, attempts) = match engine.execute(system_prompt, user_input).await {
         Ok((execution_id, _res, attempts)) => {
-            write_report(memory_repo, &execution_id, &lab_id, &lab_name).await;
+        	write_report(memory_repo, reports_dir, &execution_id, &lab_id, &lab_name).await;
             (true, attempts)
         }
         Err(crate::domain::EngineError::MaxAttemptsExceeded { execution_id, attempts }) => {
-            write_report(memory_repo, &execution_id, &lab_id, &lab_name).await;
+        	write_report(memory_repo, reports_dir, &execution_id, &lab_id, &lab_name).await;
             (false, attempts)
         }
         Err(_) => (false, 0),
@@ -72,6 +74,7 @@ pub async fn run_task(
 
 async fn write_report(
     memory_repo: &SqliteMemoryRepository,
+    reports_dir: &std::path::Path,
     execution_id: &str,
     lab_id: &str,
     label: &str,
@@ -83,8 +86,8 @@ async fn write_report(
             return;
         }
     };
-    if let Err(e) = fs::create_dir_all("reports") {
-        eprintln!("⚠️  Could not create reports/ directory: {}", e);
+    if let Err(e) = fs::create_dir_all(reports_dir) {
+        eprintln!("⚠️  Could not create reports directory: {}", e);
         return;
     }
 
@@ -93,21 +96,21 @@ async fn write_report(
     // lab_id شروع بشن. قبلاً این‌جا از slugify(label) استفاده می‌شد که
     // هیچ‌وقت با lab_id یکی نمی‌شد (مثلاً "Lab 1 — ..." → "lab_1_api_v1_..."
     // در مقابل "lab1_fetch")، پس تب گزارش‌ها همیشه خالی برمی‌گشت.
-    let base_path = format!("reports/{}_{}", lab_id, execution_id);
-
+    // let base_path = format!("reports/{}_{}", lab_id, execution_id);
+	let base_path = reports_dir.join(format!("{}_{}", lab_id, execution_id));
     match serde_json::to_string_pretty(&report) {
         Ok(json) => {
-            if let Err(e) = fs::write(format!("{}.json", base_path), json) {
+            if let Err(e) = fs::write(base_path.with_extension("json"), json) {
                 eprintln!("⚠️  Could not write JSON report: {}", e);
             }
         }
         Err(e) => eprintln!("⚠️  Could not serialize report to JSON: {}", e),
     }
     let markdown = render_markdown_report(&report, label);
-    if let Err(e) = fs::write(format!("{}.md", base_path), markdown) {
+    if let Err(e) = fs::write(base_path.with_extension("md"), markdown) {
         eprintln!("⚠️  Could not write Markdown report: {}", e);
     }
-    println!("📄 Report saved: {}.json / {}.md", base_path, base_path);
+    println!("📄 Report saved: {}.json / {}.md", base_path.display(), base_path.display());
 }
 
 fn render_markdown_report(report: &ExecutionReport, label: &str) -> String {

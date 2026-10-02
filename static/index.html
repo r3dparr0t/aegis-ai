@@ -17,13 +17,11 @@
   html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;overflow:hidden}
   .app{display:grid;grid-template-columns:320px 1fr;height:100vh}
 
-  /* ═══ Sidebar ═══ */
   .sidebar{background:var(--panel-2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
   .brand{padding:18px 22px 14px;border-bottom:1px solid var(--border)}
   .brand h1{font-size:15px;font-weight:700;letter-spacing:0.5px;display:flex;align-items:center;gap:8px}
   .brand .sub{font-size:11px;color:var(--text-dim);margin-top:3px;font-family:var(--mono)}
 
-  /* ═══ Model switcher ═══ */
   .model-box{padding:12px 22px;border-bottom:1px solid var(--border);background:var(--panel)}
   .model-box .lbl{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.9px;font-weight:600;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
   .model-box .lbl .kind{color:var(--accent);font-family:var(--mono);font-size:10px;text-transform:none;letter-spacing:0}
@@ -50,10 +48,10 @@
   .model-apply:disabled{opacity:0.3;cursor:not-allowed}
   .model-hint{font-size:10px;color:var(--text-faint);margin-top:6px;line-height:1.4}
 
-  /* ═══ Labs list ═══ */
   .labs-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden}
-  .labs-header{padding:10px 22px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);background:var(--panel)}
+  .labs-header{padding:10px 22px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);background:var(--panel);gap:8px}
   .labs-header .lbl{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.9px;font-weight:600}
+  .labs-header .actions{display:flex;gap:6px}
   .labs-header button{padding:4px 10px;font-size:11px;border-radius:5px}
   .labs{flex:1;overflow-y:auto;padding:6px 0}
   .lab-item{padding:11px 22px;cursor:pointer;border-left:3px solid transparent;transition:background 0.1s;display:flex;gap:12px;align-items:flex-start}
@@ -70,7 +68,6 @@
   .lab-mini-bar{margin-top:8px;height:4px;background:var(--border);border-radius:2px;overflow:hidden}
   .lab-mini-fill{height:100%;transition:width 0.4s ease,background 0.4s ease;min-width:2px}
 
-  /* ═══ Main ═══ */
   .main{display:flex;flex-direction:column;overflow:hidden}
   .main-header{padding:20px 32px;border-bottom:1px solid var(--border);background:var(--panel-2);display:flex;align-items:center;justify-content:space-between;gap:16px}
   .main-title h2{font-size:17px;font-weight:600;margin-bottom:3px}
@@ -144,6 +141,30 @@
   .toast.show{opacity:1;transform:translateY(0)}
   .toast.err{background:var(--red)}
 
+  /* ═══ Modal ═══ */
+  .modal-overlay{
+    position:fixed;inset:0;background:rgba(0,0,0,0.6);
+    display:flex;align-items:center;justify-content:center;
+    z-index:900;backdrop-filter:blur(2px);
+  }
+  .modal-overlay.hidden{display:none}
+  .modal{
+    background:var(--panel);border:1px solid var(--border-2);
+    border-radius:10px;padding:24px;min-width:420px;max-width:520px;
+    box-shadow:0 20px 60px rgba(0,0,0,0.7);
+  }
+  .modal h3{font-size:15px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+  .modal label{display:block;font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:6px;margin-top:12px}
+  .modal input{
+    width:100%;background:var(--panel-2);color:var(--text);
+    border:1px solid var(--border-2);border-radius:6px;
+    padding:8px 12px;font-size:13px;font-family:var(--mono);
+  }
+  .modal input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(78,161,255,0.1)}
+  .modal .hint{font-size:11px;color:var(--text-faint);margin-top:4px;font-family:var(--mono)}
+  .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+  .modal-error{color:var(--red);font-size:12px;margin-top:10px;font-family:var(--mono);min-height:18px}
+
   ::-webkit-scrollbar{width:10px;height:10px}
   ::-webkit-scrollbar-track{background:var(--bg)}
   ::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:5px;border:2px solid var(--bg)}
@@ -158,7 +179,6 @@
       <div class="sub">SSRF Fuzzing Engine</div>
     </div>
 
-    <!-- Model switcher -->
     <div class="model-box">
       <div class="lbl">
         <span>Model</span>
@@ -171,11 +191,13 @@
       <div class="model-hint" id="model-hint">Loading…</div>
     </div>
 
-    <!-- Labs list -->
     <div class="labs-wrap">
       <div class="labs-header">
         <span class="lbl">Labs</span>
-        <button onclick="runAll()" title="Run all labs sequentially">▶ Run all</button>
+        <div class="actions">
+          <button onclick="openNewLabModal()" title="Create a new lab">New Lab +</button>
+          <button onclick="runAll()" title="Run all labs sequentially">▶ Run all</button>
+        </div>
       </div>
       <div class="labs" id="lab-list"></div>
     </div>
@@ -189,6 +211,36 @@
       </div>
     </div>
   </main>
+</div>
+
+<!-- New Lab Modal -->
+<div class="modal-overlay hidden" id="new-lab-modal">
+  <div class="modal">
+    <h3>➕ Create a new lab</h3>
+
+    <label for="new-id">ID <span style="color:var(--red)">*</span></label>
+    <input id="new-id" placeholder="lab6_apache_traversal" autocomplete="off">
+    <div class="hint">a-z, 0-9, _ and - only</div>
+
+    <label for="new-name">Name <span style="color:var(--red)">*</span></label>
+    <input id="new-name" placeholder="Lab 6 — Apache path traversal" autocomplete="off">
+
+    <label for="new-description">Description</label>
+    <input id="new-description" placeholder="CVE-2021-41773 — Apache 2.4.49 path traversal" autocomplete="off">
+
+    <label for="new-url">Target URL</label>
+    <input id="new-url" value="http://localhost:5000/api/v1/fetch" autocomplete="off">
+
+    <label for="new-max">Max attempts</label>
+    <input id="new-max" type="number" value="5" min="1" max="50">
+
+    <div class="modal-error" id="modal-error"></div>
+
+    <div class="modal-actions">
+      <button onclick="closeNewLabModal()">Cancel</button>
+      <button class="primary" onclick="submitNewLab()">Create</button>
+    </div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -358,9 +410,12 @@ function updateApplyBtn() {
   btn.disabled = running || !changed || providerInfo?.kind !== 'ollama';
 }
 
-$('model-select')?.addEventListener('change', (e) => {
-  selectedModel = e.target.value;
-  updateApplyBtn();
+document.addEventListener('DOMContentLoaded', () => {
+  const sel = $('model-select');
+  if (sel) sel.addEventListener('change', (e) => {
+    selectedModel = e.target.value;
+    updateApplyBtn();
+  });
 });
 
 async function applyModel() {
@@ -383,6 +438,67 @@ async function runAll() {
   else if (r.status === 409) toast('A lab is already running', true);
   else toast('Failed to start', true);
 }
+
+// ═══ New Lab Modal ═══
+function openNewLabModal() {
+  $('new-id').value = '';
+  $('new-name').value = '';
+  $('new-description').value = '';
+  $('new-url').value = 'http://localhost:5000/api/v1/fetch';
+  $('new-max').value = '5';
+  $('modal-error').textContent = '';
+  $('new-lab-modal').classList.remove('hidden');
+  setTimeout(() => $('new-id').focus(), 50);
+}
+
+function closeNewLabModal() {
+  $('new-lab-modal').classList.add('hidden');
+}
+
+async function submitNewLab() {
+  const id = $('new-id').value.trim();
+  const name = $('new-name').value.trim();
+  const description = $('new-description').value.trim();
+  const target_url = $('new-url').value.trim();
+  const max_attempts = parseInt($('new-max').value) || 5;
+
+  if (!id) { $('modal-error').textContent = 'ID is required'; return; }
+  if (!/^[a-z0-9_-]+$/.test(id)) {
+    $('modal-error').textContent = 'ID must be lowercase a-z, 0-9, _ or - only';
+    return;
+  }
+  if (!name) { $('modal-error').textContent = 'Name is required'; return; }
+
+  $('modal-error').textContent = 'creating...';
+
+  try {
+    const r = await fetch('/api/lab/new', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, name, description, target_url, max_attempts }),
+    });
+    if (r.ok) {
+      const data = await r.json();
+      closeNewLabModal();
+      toast('Lab created: ' + data.id);
+      await loadLabs();
+      if (typeof data.index === 'number') {
+        await openLab(data.index);
+      }
+    } else {
+      const err = await r.text();
+      $('modal-error').textContent = err.slice(0, 120);
+    }
+  } catch (e) {
+    $('modal-error').textContent = 'network error';
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('new-lab-modal').classList.contains('hidden')) {
+    closeNewLabModal();
+  }
+});
 
 // ═══ Open Lab ═══
 async function openLab(idx) {

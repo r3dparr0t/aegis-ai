@@ -1,0 +1,13 @@
+# Aegis configuration. All paths are relative to the working directory
+# unless absolute.
+
+[server]
+host = "127.0.0.1"
+port = 7777
+
+[paths]
+labs_dir       = "labs"
+reports_dir    = "reports"
+static_dir     = "static"
+db_path        = "aegis.db"
+migrations_dir = "migrations"
