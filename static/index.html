@@ -142,6 +142,93 @@
   .empty .icon{font-size:48px;opacity:0.3}
   .empty .msg{font-size:14px}
 
+  /* ═══ Welcome screen ═══ */
+  .welcome{display:flex;align-items:center;justify-content:center;min-height:100%;padding:40px 20px}
+  .welcome-inner{max-width:720px;width:100%}
+
+  .welcome-hero{text-align:center;margin-bottom:40px}
+  .welcome-hero .shield{
+    font-size:64px;line-height:1;
+    display:inline-block;
+    filter:drop-shadow(0 0 24px rgba(78,161,255,0.25));
+    margin-bottom:16px;
+  }
+  .welcome-hero h1{
+    font-size:32px;font-weight:700;letter-spacing:6px;
+    background:linear-gradient(135deg,#e6edf3 30%,#4ea1ff);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+    background-clip:text;
+    margin-bottom:8px;
+  }
+  .welcome-hero .tagline{
+    font-size:14px;color:var(--text-dim);
+    max-width:520px;margin:0 auto;
+    line-height:1.6;
+  }
+
+  .welcome-stats{
+    display:grid;grid-template-columns:repeat(4,1fr);gap:12px;
+    margin-bottom:32px;
+  }
+  .stat-card{
+    background:var(--panel);border:1px solid var(--border);
+    border-radius:10px;padding:16px 12px;text-align:center;
+    transition:border-color 0.15s;
+  }
+  .stat-card:hover{border-color:var(--border-2)}
+  .stat-card .num{
+    font-family:var(--mono);font-size:26px;font-weight:700;
+    line-height:1.1;margin-bottom:4px;
+  }
+  .stat-card .label{
+    font-size:10px;color:var(--text-dim);
+    text-transform:uppercase;letter-spacing:1px;font-weight:600;
+  }
+  .stat-card.total .num{color:var(--text)}
+  .stat-card.passed .num{color:var(--green)}
+  .stat-card.failed .num{color:var(--red)}
+  .stat-card.idle .num{color:var(--text-dim)}
+
+  .welcome-section{margin-bottom:28px}
+  .welcome-section h3{
+    font-size:10px;color:var(--text-dim);
+    text-transform:uppercase;letter-spacing:1.2px;font-weight:600;
+    margin-bottom:12px;
+    display:flex;align-items:center;gap:10px;
+  }
+  .welcome-section h3::after{
+    content:'';flex:1;height:1px;background:var(--border);
+  }
+  .welcome-list{list-style:none;display:flex;flex-direction:column;gap:8px}
+  .welcome-list li{
+    display:flex;align-items:center;gap:12px;
+    padding:10px 14px;
+    background:var(--panel);border:1px solid var(--border);
+    border-radius:8px;
+    font-size:13px;color:var(--text-dim);
+    transition:border-color 0.15s;
+  }
+  .welcome-list li:hover{border-color:var(--border-2);color:var(--text)}
+  .welcome-list .ico{
+    font-size:16px;flex-shrink:0;width:22px;text-align:center;
+  }
+  .welcome-list code{
+    font-family:var(--mono);font-size:12px;
+    background:var(--panel-2);padding:2px 6px;border-radius:4px;
+    color:var(--accent);
+  }
+
+  .welcome-config{
+    display:flex;flex-wrap:wrap;gap:8px 20px;
+    padding:14px 16px;
+    background:var(--panel-2);border:1px solid var(--border);
+    border-radius:8px;
+    font-size:12px;font-family:var(--mono);color:var(--text-dim);
+  }
+  .welcome-config .k{color:var(--text-faint)}
+  .welcome-config .v{color:var(--text)}
+
+  /* ═══ Toast ═══ */
   .toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;font-size:13px;font-weight:500;color:white;background:var(--green);opacity:0;transform:translateY(10px);transition:all 0.25s;pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:1000}
   .toast.show{opacity:1;transform:translateY(0)}
   .toast.err{background:var(--red)}
@@ -215,12 +302,7 @@
   </aside>
 
   <main class="main">
-    <div id="main-content">
-      <div class="empty">
-        <div class="icon">🛡</div>
-        <div class="msg">Select a lab from the sidebar</div>
-      </div>
-    </div>
+    <div id="main-content"></div>
   </main>
 </div>
 
@@ -357,6 +439,95 @@ function attemptsUsed(status) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Welcome screen — وقتی هیچ labی انتخاب نشده
+// ═══════════════════════════════════════════════════════════════
+function renderWelcome() {
+  const el = $('main-content');
+  if (!el) return;
+
+  const total   = labs.length;
+  const passed  = labs.filter(l => l.status?.kind === 'passed').length;
+  const failed  = labs.filter(l => l.status?.kind === 'failed').length;
+  const idle    = labs.filter(l => !l.status || l.status.kind === 'untouched').length;
+
+  const modelName = providerInfo?.model || '—';
+  const modelKind = providerInfo?.kind  || '—';
+  const providerUrl = providerInfo?.base_url || '—';
+
+  el.innerHTML = `
+    <div class="welcome">
+      <div class="welcome-inner">
+
+        <div class="welcome-hero">
+          <div class="shield">🛡</div>
+          <h1>AEGIS</h1>
+          <div class="tagline">
+            A self-correcting LLM agent for web security fuzzing.
+            Plans, executes, evaluates against a real target, and refines
+            its strategy — attempt after attempt — until it succeeds.
+          </div>
+        </div>
+
+        <div class="welcome-stats">
+          <div class="stat-card total">
+            <div class="num">${total}</div>
+            <div class="label">Labs</div>
+          </div>
+          <div class="stat-card passed">
+            <div class="num">${passed}</div>
+            <div class="label">Passed</div>
+          </div>
+          <div class="stat-card failed">
+            <div class="num">${failed}</div>
+            <div class="label">Failed</div>
+          </div>
+          <div class="stat-card idle">
+            <div class="num">${idle}</div>
+            <div class="label">Untouched</div>
+          </div>
+        </div>
+
+        <div class="welcome-section">
+          <h3>Quick start</h3>
+          <ul class="welcome-list">
+            <li>
+              <span class="ico">📋</span>
+              <span>Pick a lab from the sidebar to see its details.</span>
+            </li>
+            <li>
+              <span class="ico">▶</span>
+              <span>Run it with <code>▶ Run</code> — or all of them with <code>▶ Run all</code>.</span>
+            </li>
+            <li>
+              <span class="ico">📝</span>
+              <span>Edit a lab's <code>YAML</code> and save; changes apply immediately.</span>
+            </li>
+            <li>
+              <span class="ico">📄</span>
+              <span>Each run produces a report under the <code>Reports</code> tab.</span>
+            </li>
+            <li>
+              <span class="ico">➕</span>
+              <span>Add a new lab with <code>+ New</code> — SSRF or raw HTTP (for CVEs).</span>
+            </li>
+          </ul>
+        </div>
+
+        <div class="welcome-section">
+          <h3>Configuration</h3>
+          <div class="welcome-config">
+            <span><span class="k">model:</span> <span class="v">${esc(modelName)}</span></span>
+            <span><span class="k">provider:</span> <span class="v">${esc(modelKind)}</span></span>
+            <span><span class="k">endpoint:</span> <span class="v">${esc(providerUrl)}</span></span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Labs
 // ═══════════════════════════════════════════════════════════════
 async function loadLabs() {
@@ -364,7 +535,12 @@ async function loadLabs() {
     const r = await fetch('/api/labs');
     labs = await r.json();
     renderLabList();
-    if (currentIdx !== null && labs[currentIdx]) updateHeaderStatus();
+    if (currentIdx !== null && labs[currentIdx]) {
+      updateHeaderStatus();
+    } else if (currentIdx === null) {
+      // اگه تو welcome هستیم، آمارش رو زنده نگه دار
+      if (document.querySelector('.welcome')) renderWelcome();
+    }
   } catch (e) { console.error(e); }
 }
 
@@ -437,6 +613,8 @@ async function loadProvider() {
       $('model-apply').disabled = true;
       $('model-hint').textContent = 'live switching only for Ollama';
     }
+    // اگه welcome نشون داده می‌شه، config رو آپدیت کن
+    if (document.querySelector('.welcome')) renderWelcome();
   } catch (e) {
     $('model-hint').textContent = 'failed to load provider';
   }
@@ -533,8 +711,6 @@ async function submitNewLab() {
     return;
   }
   if (!body.name) { $('modal-error').textContent = 'Name is required'; return; }
-
-  // پیش‌چک سمت کلاینت برای یکتا بودن
   if (labs.some(l => l.id === body.id)) {
     $('modal-error').textContent = `Lab '${body.id}' already exists`;
     return;
@@ -580,10 +756,20 @@ async function openLab(idx) {
   await renderMain();
 }
 
+function goHome() {
+  currentIdx = null;
+  currentReport = null;
+  renderLabList();
+  renderWelcome();
+}
+
 async function renderMain() {
-  if (currentIdx === null) return;
+  if (currentIdx === null) {
+    renderWelcome();
+    return;
+  }
   const lab = labs[currentIdx];
-  if (!lab) return;
+  if (!lab) { renderWelcome(); return; }
   const cls = stateClass(lab.status);
 
   $('main-content').innerHTML = `
@@ -605,6 +791,7 @@ async function renderMain() {
       <button class="primary" id="run-btn" onclick="runCurrent()">▶ Run</button>
       <button onclick="switchTab('yaml')">📝 Edit YAML</button>
       <button onclick="switchTab('reports')">📄 Reports</button>
+      <button onclick="goHome()" title="Back to welcome screen">⌂ Home</button>
     </div>
     <div class="tab-content" id="tab-body"></div>
   `;
@@ -814,13 +1001,7 @@ async function deleteCurrentLab() {
     const r = await fetch(`/api/lab/${currentIdx}/delete`, { method: 'POST' });
     if (r.ok) {
       toast('Lab deleted');
-      currentIdx = null;
-      currentTab = 'overview';
-      $('main-content').innerHTML = `
-        <div class="empty">
-          <div class="icon">🛡</div>
-          <div class="msg">Select a lab from the sidebar</div>
-        </div>`;
+      goHome();
       await loadLabs();
     } else {
       const err = await r.text();
@@ -855,6 +1036,7 @@ function syntaxHighlight(obj) {
 // ═══════════════════════════════════════════════════════════════
 // Boot
 // ═══════════════════════════════════════════════════════════════
+renderWelcome();   // ← صفحه‌ی خوش‌آمد بلافاصله
 loadLabs();
 loadProvider();
 setInterval(loadLabs, 3000);
