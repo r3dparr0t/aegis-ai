@@ -113,6 +113,35 @@ the plain IP plus `"ip_encoding": "decimal"`, and Rust performs the numeric
 conversion before sending. The LLM picks the strategy; the code does the
 arithmetic.
 
+## Real CVEs (via vulhub)
+
+Beyond the training labs, Aegis can exploit **real CVEs** in isolated
+Docker containers from [vulhub](https://github.com/vulhub/vulhub).
+
+| CVE | Target | Technique | Status |
+|---|---|---|---|
+| CVE-2021-41773 | Apache 2.4.49 | Path traversal via `.%2e` → RCE through mod_cgi | ✅ passing |
+
+Each CVE is a YAML lab with `target.kind: raw`. Unlike the SSRF labs,
+these use a **raw TCP executor** that sends the HTTP request byte-for-byte —
+bypassing the WHATWG URL normalization in the `url` crate, which would
+otherwise collapse `.%2e` to `..` before the request leaves the client.
+(The same reason `curl` has `--path-as-is`.)
+
+Example — the Apache CVE lab:
+
+```yaml
+target:
+  kind: raw
+  url: "http://localhost:8080"
+  method: POST
+  headers:
+    Content-Type: text/plain
+
+evaluator:
+  kind: regex
+  pattern: "(root:.*:0:0:|uid=\\d+\\([a-z0-9_]+\\))"
+```
 ---
 
 ## Adding a Lab
