@@ -16,8 +16,21 @@ pub struct ServerConfig {
     pub host: String,
     #[serde(default = "default_port")]
     pub port: u16,
+    #[serde(default = "default_true")]
+    pub auto_manage_vulhub: bool,
 }
 
+fn default_true() -> bool { true }
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            host: default_host(),
+            port: default_port(),
+            auto_manage_vulhub: true,
+        }
+    }
+}
 #[derive(Debug, Clone, Deserialize)]
 pub struct PathsConfig {
     #[serde(default = "default_labs_dir")]
@@ -30,12 +43,8 @@ pub struct PathsConfig {
     pub db_path: String,
     #[serde(default = "default_migrations_dir")]
     pub migrations_dir: PathBuf,
-}
-
-impl Default for ServerConfig {
-    fn default() -> Self {
-        Self { host: default_host(), port: default_port() }
-    }
+    #[serde(default)]
+    pub vulhub_root: Option<PathBuf>,   // ← جدید
 }
 
 impl Default for PathsConfig {
@@ -46,6 +55,7 @@ impl Default for PathsConfig {
             static_dir: default_static_dir(),
             db_path: default_db_path(),
             migrations_dir: default_migrations_dir(),
+            vulhub_root: None,
         }
     }
 }
@@ -59,6 +69,18 @@ fn default_db_path() -> String { "aegis.db".to_string() }
 fn default_migrations_dir() -> PathBuf { PathBuf::from("migrations") }
 
 impl Config {
+    /// مسیر مطلق یک vulhub lab رو برمی‌گردونه. اگه مسیر نسبی باشه،
+    /// به `vulhub_root` وصل می‌شه. اگه مسیر مطلق باشه، دست‌نخورده.
+    pub fn resolve_vulhub_dir(&self, compose_dir: &str) -> PathBuf {
+        let p = PathBuf::from(compose_dir);
+        if p.is_absolute() {
+            return p;
+        }
+        match &self.paths.vulhub_root {
+            Some(root) => root.join(p),
+            None => p,  // شاید کاربر CWD رو درست تنظیم کرده
+        }
+    }
     /// از فایل aegis.toml می‌خونه. اگه نبود، default استفاده می‌کنه.
     /// مسیر فایل از متغیر محیطی AEGIS_CONFIG قابل overrideـه.
     pub fn load() -> Self {

@@ -5,11 +5,17 @@ use crate::{
     domain::LlmProvider,
     engine::ExecutionEngine,
     provider::OllamaProvider,
+    labs::vulhub,
 };
 
 use super::{lab::Lab, run_task, LabContext};
 
-pub async fn run_lab(ctx: &LabContext, lab: &Arc<Lab>, goal: Option<String>) {
+pub async fn run_lab(
+    ctx: &LabContext,
+    lab: &Arc<Lab>,
+    all_labs: &[Arc<Lab>],
+    goal: Option<String>,
+) {
     if !Lab::try_start(lab, &ctx.run_lock) {
         eprintln!(
             "⚠️  Lab '{}' skipped — another lab is already running.",
@@ -17,10 +23,24 @@ pub async fn run_lab(ctx: &LabContext, lab: &Arc<Lab>, goal: Option<String>) {
         );
         return;
     }
-    run_locked(ctx, lab, goal).await;
+    run_locked(ctx, lab, all_labs, goal).await;
 }
 
-pub async fn run_locked(ctx: &LabContext, lab: &Arc<Lab>, goal: Option<String>) {
+pub async fn run_locked(
+    ctx: &LabContext,
+    lab: &Arc<Lab>,
+    all_labs: &[Arc<Lab>],
+    goal: Option<String>,
+) {
+    // ★ قبل از هر چیز، مطمئن شو vulhub درست بالاست
+    vulhub::ensure_running(
+        lab,
+        all_labs,
+        ctx.auto_manage_vulhub,
+        ctx.vulhub_root.as_deref(),
+    )
+    .await;
+
     let (success, attempts) = match execute_lab(ctx, lab, goal).await {
         Ok(r) => r,
         Err(msg) => {

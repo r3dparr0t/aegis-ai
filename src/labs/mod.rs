@@ -12,6 +12,7 @@ pub mod spec;
 pub mod lab;
 pub mod registry;
 pub mod runner;
+pub mod vulhub; 
 
 pub use lab::{Lab, LabState, RunLock};
 pub use spec::LabSpec;
@@ -27,6 +28,8 @@ pub struct LabContext {
     pub observer: crate::events::SharedObserver,
     pub run_lock: RunLock,
     pub reports_dir: std::path::PathBuf,
+    pub auto_manage_vulhub: bool,
+    pub vulhub_root: Option<std::path::PathBuf>,  
 }
 
 /// اجرای یه Lab و برگرداندن (success, attempts).

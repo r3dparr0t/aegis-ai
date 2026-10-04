@@ -40,6 +40,8 @@ pub struct LabSpec {
     /// باشه. provider عمومی/global دست‌نخورده می‌مونه.
     #[serde(default)]
     pub fallback_strategy: Option<FallbackSpec>,
+     #[serde(default)]
+    pub vulhub: Option<VulhubSpec>,
 }
 
 /// `after_attempt: 3` یعنی: *بعد از* شکست‌خوردنِ کامل تلاش شماره‌ی ۳ (یعنی
@@ -159,3 +161,15 @@ pub struct LabOptions {
     #[serde(default)]
     pub default_bigger_model: String,
 }
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct VulhubSpec {
+    /// مسیر پوشه‌ی حاوی docker-compose.yml. اگه نسبی باشه، نسبت به
+    /// `paths.vulhub_root` تو aegis.toml تفسیر می‌شه.
+    pub compose_dir: String,
+    /// بعد از `docker compose up -d` چند ثانیه صبر کنیم (پیش‌فرض ۳).
+    #[serde(default = "default_wait_secs")]
+    pub wait_secs: u64,
+}
+
+fn default_wait_secs() -> u64 { 3 }

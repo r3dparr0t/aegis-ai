@@ -82,13 +82,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     });
 
-let ctx = Arc::new(LabContext {
+    let ctx = Arc::new(LabContext {
         provider: RwLock::new(provider),
         memory_repo,
         prefix,
         observer: composite,
         run_lock: run_lock.clone(),
         reports_dir: config.paths.reports_dir.clone(),
+        auto_manage_vulhub: config.server.auto_manage_vulhub,
+        vulhub_root: config.paths.vulhub_root.clone(),
     });
 
     let app_ctx = web::AppCtx {
@@ -142,7 +144,7 @@ async fn cli_mode(url: &str, labs: Arc<RwLock<Vec<Arc<Lab>>>>, ctx: Arc<LabConte
         Some(lab_id) => {
             if let Some(lab) = labs_snapshot.iter().find(|l| l.id() == lab_id) {
                 println!("\n  ▶  Running lab: {}", lab.name());
-                runner::run_lab(&ctx, lab, None).await;
+                runner::run_lab(&ctx, lab, &labs_snapshot, None).await;
             } else {
                 eprintln!("❌ Lab '{}' not found", lab_id);
                 eprintln!(
@@ -158,14 +160,14 @@ async fn cli_mode(url: &str, labs: Arc<RwLock<Vec<Arc<Lab>>>>, ctx: Arc<LabConte
 
             if choice == all_choice {
                 for lab in labs_snapshot.iter() {
-                    runner::run_lab(&ctx, lab, None).await;
+                    runner::run_lab(&ctx, lab, &labs_snapshot, None).await;
                 }
             } else if let Ok(idx) = choice.parse::<usize>() {
                 if idx >= 1 && idx <= labs_snapshot.len() {
-                    runner::run_lab(&ctx, &labs_snapshot[idx - 1], None).await;
+                    runner::run_lab(&ctx, &labs_snapshot[idx - 1], &labs_snapshot, None).await;
                 }
             } else if let Some(lab) = labs_snapshot.iter().find(|l| l.id() == choice) {
-                runner::run_lab(&ctx, lab, None).await;
+                runner::run_lab(&ctx, lab, &labs_snapshot, None).await;
             }
         }
     }

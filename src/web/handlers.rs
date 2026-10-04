@@ -397,12 +397,12 @@ pub async fn run_lab(
     State(app): State<AppCtx>,
     Path(idx): Path<usize>,
 ) -> impl IntoResponse {
-    let lab = {
+    let (lab, all_labs) = {
         let labs = app.labs.read().unwrap();
         if idx >= labs.len() {
             return (StatusCode::NOT_FOUND, "not found").into_response();
         }
-        labs[idx].clone()
+        (labs[idx].clone(), labs.clone())
     };
 
     if !Lab::try_start(&lab, &app.ctx.run_lock) {
@@ -413,7 +413,7 @@ pub async fn run_lab(
     let default_goal = lab.default_goal();
 
     tokio::spawn(async move {
-        runner::run_locked(&ctx, &lab, Some(default_goal)).await;
+        runner::run_locked(&ctx, &lab, &all_labs, Some(default_goal)).await;
     });
 
     (StatusCode::OK, "started").into_response()
@@ -429,7 +429,7 @@ pub async fn run_all(State(app): State<AppCtx>) -> impl IntoResponse {
 
     tokio::spawn(async move {
         for lab in labs_snapshot.iter() {
-            runner::run_lab(&ctx, lab, None).await;
+            runner::run_lab(&ctx, lab, &labs_snapshot, None).await;
         }
     });
 
