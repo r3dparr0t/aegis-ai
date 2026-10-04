@@ -22,4 +22,11 @@ pub struct ExecutionReport {
     pub created_at: String,
     pub attempts: Vec<AttemptReport>,
     pub success: bool,
+    /// true اگه تو هر attemptی از این اجرا، حداقل یه hint دستی (از YAML لب)
+    /// به system_prompt تزریق شده باشه. وقتی true ـه، «پاس شدن» رو نباید
+    /// به‌عنوان توانایی خالص مدل حساب کرد — با کمک حل شده، نه خودش.
+    pub hint_used: bool,
+    /// true اگه provider این اجرا حین کار، طبق `fallback_strategy` به یه
+    /// مدل دیگه سوییچ کرده باشه (مثلاً مدل کوچیک‌تر → بزرگ‌تر).
+    pub fallback_used: bool,
 }

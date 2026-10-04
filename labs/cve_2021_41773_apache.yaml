@@ -50,6 +50,8 @@ system_prompt: |
   - The body must start with "echo Content-Type: text/plain; echo; " —
     without it, Apache's CGI handler misparses the response and returns 500.
   - Return ONLY ONE JSON object for ONE attempt. Never output two.
-
+  If the response is {"message":"Plugin file not found"}, the plugin id is
+  fine but the traversal depth is wrong — try with fewer or more "../"
+  segments (anywhere from 4 to 10), not just different plugin names.
   Payload format:
   {"method": "<GET|POST>", "path": "<path>", "body": "<optional body>"}

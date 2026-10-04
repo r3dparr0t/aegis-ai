@@ -122,9 +122,16 @@ fn render_markdown_report(report: &ExecutionReport, label: &str) -> String {
     md.push_str(&format!("- **Created at:** {}\n", report.created_at));
     md.push_str(&format!("- **Attempts:** {}\n", report.attempts.len()));
     md.push_str(&format!(
-        "- **Result:** {}\n\n",
+        "- **Result:** {}\n",
         if report.success { "✅ SUCCESS" } else { "❌ FAILED" }
     ));
+    if report.hint_used {
+        md.push_str("- **⚠️ Hint used:** yes — not a clean pass\n");
+    }
+    if report.fallback_used {
+        md.push_str("- **⚠️ Model fallback used:** yes — not solved by the original model alone\n");
+    }
+    md.push('\n');
     md.push_str("## Attempts\n\n");
     for attempt in &report.attempts {
         let verdict = if attempt.is_valid { "✅ PASSED" } else { "❌ FAILED" };

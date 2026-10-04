@@ -9,15 +9,35 @@ use crate::{
 	memory::SqliteMemoryRepository, 
     executor::{json::{extract_json_object, strip_code_fences},
         payload::apply_ip_encoding},
-    events::{ConsoleObserver, Event, SharedObserver},              
+    events::{ConsoleObserver, Event, SharedObserver},
+    provider::OllamaProvider,
 };
 #[allow(unused_imports)]
 use crate::events::EngineObserver;
+
+/// راهنمای دستی که بعد از N تلاشِ ناموفق به system_prompt اضافه می‌شه.
+/// نسخه‌ی عمومی/engine-level از `labs::spec::HintSpec` — engine از مفهوم
+/// "Lab" بی‌خبره، پس این تبدیل تو `Lab::build_config` انجام می‌شه.
+#[derive(Debug, Clone)]
+pub struct Hint {
+    pub after_attempt: u32,
+    pub message: String,
+}
+
+/// سوییچ موقتِ provider، فقط برای همین یه اجرا — نسخه‌ی عمومی/engine-level
+/// از `labs::spec::FallbackSpec`.
+#[derive(Debug, Clone)]
+pub struct FallbackStrategy {
+    pub on_attempt: u32,
+    pub target_model: String,
+}
 
 pub struct EngineConfig {
     pub max_attempts: u32,
     pub task_type: String,
     pub expected_body_key: Option<String>,
+    pub hints: Vec<Hint>,
+    pub fallback: Option<FallbackStrategy>,
 }
 
 struct AppliedLesson {
@@ -109,6 +129,13 @@ impl ExecutionEngine {
         let mut current_attempt = 1;
         let mut accumulated_lessons: Vec<AppliedLesson> = Vec::new();
 
+        // provider محلیِ همین اجرا — جدا از self.provider (که global/shared
+        // بینِ همه‌ی لب‌هاست). فقط fallback_strategy می‌تونه عوضش کنه، و فقط
+        // برای طول عمر همین execute() — بعدش دور ریخته می‌شه.
+        let mut active_provider: Arc<dyn LlmProvider> = self.provider.clone();
+        let mut hint_marked = false;
+        let mut fallback_marked = false;
+
         // ۲. بازیابی اولیه‌ی حافظه
         let query = MemoryQuery {
             task_type: self.config.task_type.clone(),
@@ -159,8 +186,73 @@ impl ExecutionEngine {
                 texts: accumulated_lessons.iter().map(|l| l.text.clone()).collect(),
             });
 
+            // ─── Hints دستی (از YAML لب) ───
+            // "after_attempt: 3" یعنی از تلاش ۴ به بعد فعاله (strictly-after،
+            // نه inclusive) — نگاه کن به توضیح `HintSpec` تو labs/spec.rs.
+            let active_hints: Vec<&str> = self
+                .config
+                .hints
+                .iter()
+                .filter(|h| current_attempt > h.after_attempt)
+                .map(|h| h.message.as_str())
+                .collect();
+
+            if !active_hints.is_empty() {
+                self.emit(Event::HintsActive {
+                    attempt: current_attempt,
+                    messages: active_hints.iter().map(|s| s.to_string()).collect(),
+                });
+                if !hint_marked {
+                    hint_marked = true;
+                    if let Err(e) = self.memory_repo.mark_hint_used(&execution_id).await {
+                        self.emit_error(
+                            "database",
+                            format!("mark_hint_used failed (non-fatal): {}", e),
+                            false,
+                        );
+                    }
+                }
+            }
+
+            // ─── Fallback — سوییچ provider دقیقاً سرِ همین attempt ───
+            if let Some(fb) = &self.config.fallback {
+                if current_attempt == fb.on_attempt {
+                    let info = active_provider.info();
+                    if info.kind == "ollama" {
+                        let from_model = info.model.clone();
+                        active_provider =
+                            Arc::new(OllamaProvider::new(info.base_url, fb.target_model.clone()));
+                        self.emit(Event::ModelFallback {
+                            attempt: current_attempt,
+                            from_model,
+                            to_model: fb.target_model.clone(),
+                        });
+                        if !fallback_marked {
+                            fallback_marked = true;
+                            if let Err(e) = self.memory_repo.mark_fallback_used(&execution_id).await {
+                                self.emit_error(
+                                    "database",
+                                    format!("mark_fallback_used failed (non-fatal): {}", e),
+                                    false,
+                                );
+                            }
+                        }
+                    } else {
+                        self.emit_error(
+                            "fallback",
+                            format!(
+                                "fallback_strategy skipped: current provider is '{}', not Ollama",
+                                info.kind
+                            ),
+                            false,
+                        );
+                    }
+                }
+            }
+
             // ساخت پرامپت
-            let dynamic_system_prompt = self.assemble_prompt(system_prompt, &accumulated_lessons);
+            let dynamic_system_prompt =
+                self.assemble_prompt(system_prompt, &accumulated_lessons, &active_hints);
 
             let request = LlmRequest {
                 system_prompt: dynamic_system_prompt,
@@ -173,7 +265,7 @@ impl ExecutionEngine {
             // LLM call
             // -------------------------------------------------------------------
             self.state(ExecutionState::Generating);
-            let response = match self.provider.generate(&request).await {
+            let response = match active_provider.generate(&request).await {
                 Ok(res) => res,
                 Err(err) => {
                     if err.is_retryable() && current_attempt < self.config.max_attempts {
@@ -537,19 +629,41 @@ impl ExecutionEngine {
         }
     }
 
-    fn assemble_prompt(&self, base_system_prompt: &str, lessons: &[AppliedLesson]) -> String {
-        if lessons.is_empty() {
-            return base_system_prompt.to_string();
+    fn assemble_prompt(
+        &self,
+        base_system_prompt: &str,
+        lessons: &[AppliedLesson],
+        hints: &[&str],
+    ) -> String {
+        let mut out = base_system_prompt.to_string();
+
+        if !lessons.is_empty() {
+            let lessons_block = lessons
+                .iter()
+                .enumerate()
+                .map(|(i, l)| format!("{}. {}", i + 1, l.text))
+                .collect::<Vec<_>>()
+                .join("\n");
+            out.push_str(&format!(
+                "\n\n### CRITICAL LESSONS FROM PREVIOUS ATTEMPTS (DO NOT REPEAT THESE ERRORS):\n{}",
+                lessons_block
+            ));
         }
-        let lessons_block = lessons
-            .iter()
-            .enumerate()
-            .map(|(i, l)| format!("{}. {}", i + 1, l.text))
-            .collect::<Vec<_>>()
-            .join("\n");
-        format!(
-            "{}\n\n### CRITICAL LESSONS FROM PREVIOUS ATTEMPTS (DO NOT REPEAT THESE ERRORS):\n{}",
-            base_system_prompt, lessons_block
-        )
+
+        // Hints جدا از lessons می‌مونن — lessons از شکست‌های *واقعیِ* همین
+        // مدل تو همین اجرا استخراج می‌شن (emergent)، ولی hints از قبل، دستی
+        // تو YAML نوشته شدن. مخلوط‌نکردنشون باعث می‌شه بعداً بشه تشخیص داد
+        // پاس‌شدن با کمک بوده یا نه (نگاه کن به `ExecutionReport.hint_used`).
+        if !hints.is_empty() {
+            let hints_block = hints
+                .iter()
+                .enumerate()
+                .map(|(i, h)| format!("{}. {}", i + 1, h))
+                .collect::<Vec<_>>()
+                .join("\n");
+            out.push_str(&format!("\n\n### HINTS:\n{}", hints_block));
+        }
+
+        out
     }
 }

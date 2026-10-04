@@ -206,6 +206,18 @@ impl Lab {
             max_attempts: spec.max_attempts,
             task_type,
             expected_body_key,
+            hints: spec
+                .hints
+                .iter()
+                .map(|h| crate::engine::Hint {
+                    after_attempt: h.after_attempt,
+                    message: h.message.clone(),
+                })
+                .collect(),
+            fallback: spec.fallback_strategy.as_ref().map(|f| crate::engine::FallbackStrategy {
+                on_attempt: f.on_attempt,
+                target_model: f.target_model.clone(),
+            }),
         }
     }
 

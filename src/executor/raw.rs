@@ -102,7 +102,13 @@ impl TargetExecutor for RawHttpExecutor {
 
         // ۵. request-line خام — دقیقاً همین بایت‌ها فرستاده می‌شن.
         let mut request = format!("{} {} HTTP/1.1\r\n", method, path);
-        request.push_str(&format!("Host: {}\r\n", self.host));
+        // request.push_str(&format!("Host: {}\r\n", self.host));
+        let host_header = if self.port == 80 {
+            self.host.clone()
+        } else {
+            format!("{}:{}", self.host, self.port)
+        };
+        request.push_str(&format!("Host: {}\r\n", host_header));
         request.push_str("Connection: close\r\n");
         let has_content_length = headers
             .iter()

@@ -9,6 +9,10 @@ pub enum Event {
     LabFinished { lab_id: String, lab_name: String, success: bool, attempts: u32 },
     AttemptStarted { execution_id: String, attempt: u32, max_attempts: u32 },
     LessonsInjected { count: usize, texts: Vec<String> },
+    /// hintهای دستیِ YAML که این attempt فعال شدن (بعد از after_attempt).
+    HintsActive { attempt: u32, messages: Vec<String> },
+    /// provider این اجرا، سر یه attempt مشخص، طبق fallback_strategy عوض شد.
+    ModelFallback { attempt: u32, from_model: String, to_model: String },
     LlmCalling,
     LlmResponded { raw: String, latency_ms: u64 },
     PayloadParsed { payload: String },
@@ -45,6 +49,17 @@ impl EngineObserver for ConsoleObserver {
                 } else {
                     println!("🧠 Injecting {} lesson(s) into prompt:", count);
                 }
+            }
+            Event::HintsActive { messages, .. } => {
+                for m in &messages {
+                    println!("💡 Hint active: {}", m);
+                }
+            }
+            Event::ModelFallback { attempt, from_model, to_model } => {
+                println!(
+                    "🔀 [Attempt {}] Falling back: {} → {}",
+                    attempt, from_model, to_model
+                );
             }
             Event::LlmCalling => println!("🔷 [STATE] Generating (calling LLM provider)"),
             Event::LlmResponded { raw, .. } => println!("📝 Model raw output:\n{}", raw),

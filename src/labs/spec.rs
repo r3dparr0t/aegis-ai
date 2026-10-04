@@ -31,6 +31,35 @@ pub struct LabSpec {
     pub system_prompt: String,
     #[serde(default)]
     pub options: LabOptions,
+    /// راهنمایی‌های پله‌ای — بعد از N تلاش ناموفق، متن کمکی به system_prompt
+    /// اضافه می‌شه. نگاه کن به `HintSpec` برای معنای دقیق `after_attempt`.
+    #[serde(default)]
+    pub hints: Vec<HintSpec>,
+    /// اگه ست بشه، دقیقاً سر یه attempt مشخص، مدل این *اجرا* (نه global)
+    /// موقتاً به یه مدل دیگه سوییچ می‌کنه — فقط وقتی provider فعلی Ollama
+    /// باشه. provider عمومی/global دست‌نخورده می‌مونه.
+    #[serde(default)]
+    pub fallback_strategy: Option<FallbackSpec>,
+}
+
+/// `after_attempt: 3` یعنی: *بعد از* شکست‌خوردنِ کامل تلاش شماره‌ی ۳ (یعنی
+/// شروع از تلاش ۴ به بعد)، این متن به system_prompt اضافه می‌شه. تا وقتی لب
+/// جواب بده یا تلاش‌ها تموم بشه، هر hintی که فعال شده باشه، تو همه‌ی
+/// تلاش‌های بعدی باقی می‌مونه (مثل lessons).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct HintSpec {
+    pub after_attempt: u32,
+    pub message: String,
+}
+
+/// `on_attempt: 4` یعنی: دقیقاً سرِ شروع تلاش شماره‌ی ۴ (نه قبل، نه بعد)،
+/// provider این یه اجرا موقتاً عوض می‌شه به `target_model` — فقط اگه
+/// provider فعلی Ollama باشه (برای provider غیر-Ollama نادیده گرفته می‌شه،
+/// چون سوییچ زنده‌ی مدل فقط برای Ollama معنی داره).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FallbackSpec {
+    pub on_attempt: u32,
+    pub target_model: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

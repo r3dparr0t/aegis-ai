@@ -59,6 +59,18 @@ impl EngineObserver for WebStateObserver {
             Event::LessonsInjected { count, .. } => {
                 if *count > 0 { s.push("🧠", format!("{} lesson(s)", count), "info"); }
             }
+            Event::HintsActive { messages, .. } => {
+                for m in messages {
+                    s.push("💡", m.chars().take(120).collect::<String>(), "info");
+                }
+            }
+            Event::ModelFallback { attempt, from_model, to_model } => {
+                s.push(
+                    "🔀",
+                    format!("fallback (attempt {}): {} → {}", attempt, from_model, to_model),
+                    "state",
+                );
+            }
             Event::LlmResponded { raw, latency_ms } => {
                 s.push("📥", format!("LLM {}ms: {}", latency_ms, raw.chars().take(80).collect::<String>()), "info");
             }

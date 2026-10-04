@@ -207,17 +207,40 @@ impl SqliteMemoryRepository {
         Ok(())
     }
 
+    /// ثبت اینکه این اجرا حداقل یه بار hint دستی گرفته. چندبار صدا زدنش
+    /// بی‌ضرره (idempotent) — همیشه ستش می‌کنه رو true.
+    pub async fn mark_hint_used(&self, execution_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE executions SET hint_used = 1 WHERE id = ?")
+            .bind(execution_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// ثبت اینکه provider این اجرا طبق fallback_strategy عوض شده.
+    pub async fn mark_fallback_used(&self, execution_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE executions SET fallback_used = 1 WHERE id = ?")
+            .bind(execution_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// بازسازی کامل یک گزارش اجرا (Execution Report) از روی جدول‌های executions/attempts/evaluations.
     /// برای گزارش‌دهی نهایی به کاربر (خروجی JSON/Markdown)، نه برای مسیر اصلی self-correction.
     pub async fn get_execution_report(&self, execution_id: &str) -> Result<ExecutionReport, sqlx::Error> {
-        let exec_row = sqlx::query("SELECT task_type, input_prompt, created_at FROM executions WHERE id = ?")
-            .bind(execution_id)
-            .fetch_one(&self.pool)
-            .await?;
+        let exec_row = sqlx::query(
+            "SELECT task_type, input_prompt, created_at, hint_used, fallback_used FROM executions WHERE id = ?",
+        )
+        .bind(execution_id)
+        .fetch_one(&self.pool)
+        .await?;
 
         let task_type: String = exec_row.get("task_type");
         let goal: String = exec_row.get("input_prompt");
         let created_at: String = exec_row.get("created_at");
+        let hint_used: bool = exec_row.get("hint_used");
+        let fallback_used: bool = exec_row.get("fallback_used");
 
         let attempt_rows = sqlx::query(
             r#"
@@ -258,6 +281,8 @@ impl SqliteMemoryRepository {
             created_at,
             attempts,
             success,
+            hint_used,
+            fallback_used,
         })
     }
 }
