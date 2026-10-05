@@ -230,6 +230,7 @@ impl Lab {
                 on_attempt: f.on_attempt,
                 target_model: f.target_model.clone(),
             }),
+            cancel: None,
         }
     }
 

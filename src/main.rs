@@ -90,6 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         run_lock: run_lock.clone(),
         reports_dir: config.paths.reports_dir.clone(),
         auto_manage_box: config.server.auto_manage_box,
+        cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     });
 
     let app_ctx = web::AppCtx {
@@ -102,7 +103,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     print_banner(&url, &config);
 
-    let _ = open::that(&url);
+    let cli_mode = std::env::args().any(|a| a == "--cli");
+    if !cli_mode {
+        let _ = open::that(&url);
+    }
+    else {
+        cli(&url, labs.clone(), ctx.clone()).await;
+    }
 
     // Server
     let serve_ctx = app_ctx.clone();
@@ -113,22 +120,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-
-    // ─── CLI (اختیاری) ───
-    cli_mode(&url, labs.clone(), ctx.clone()).await;
-
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;    
     tokio::signal::ctrl_c().await.ok();
     println!("\n  👋 Shutting down...");
     Ok(())
 }
 
-async fn cli_mode(url: &str, labs: Arc<RwLock<Vec<Arc<Lab>>>>, ctx: Arc<LabContext>) {
+async fn cli(url: &str, labs: Arc<RwLock<Vec<Arc<Lab>>>>, ctx: Arc<LabContext>) {
     let args: Vec<String> = std::env::args().collect();
-    let cli_mode = args.iter().any(|a| a == "--cli");
-    if !cli_mode {
-        return;
-    }
 
     let cli_lab: Option<String> = args
         .iter()

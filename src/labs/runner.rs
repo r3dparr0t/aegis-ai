@@ -21,6 +21,10 @@ pub async fn run_lab(
     all_labs: &[Arc<Lab>],
     goal: Option<String>,
 ) {
+    if ctx.cancel.load(std::sync::atomic::Ordering::SeqCst) {
+        eprintln!("⚠️  Lab '{}' skipped: previous cancel is still set", lab.id());
+        return;
+    }
     if !Lab::try_start(lab, &ctx.run_lock) {
         eprintln!(
             "⚠️  Lab '{}' skipped — another lab is already running.",
@@ -37,14 +41,33 @@ pub async fn run_locked(
     all_labs: &[Arc<Lab>],
     goal: Option<String>,
 ) {
+    // reset ONCE
+    ctx.cancel.store(false, std::sync::atomic::Ordering::SeqCst);
     let lab_id = lab.id();
 
     // ── ۱. preflight ──
-    let preflight = dbox::preflight(lab, all_labs, ctx.auto_manage_box, &ctx.observer).await;
+    let preflight = dbox::preflight(
+        lab,
+        all_labs,
+        ctx.auto_manage_box,
+        &ctx.cancel,
+        &ctx.observer,
+    )
+    .await;
+
+    // اگه کاربر وسط preflight Stop زد
+    if ctx.cancel.load(std::sync::atomic::Ordering::SeqCst) {
+        eprintln!("[STOP] cancelled during preflight");
+        dbox::teardown(lab, ctx.auto_manage_box, &ctx.observer).await;
+        Lab::finish_untouched(lab, &ctx.run_lock);
+        return;
+    }
 
     let should_fuzz = match preflight {
         PreflightResult::Up => {
-            ctx.observer.on_event(Event::ServerUp { lab_id: lab_id.clone() });
+            ctx.observer.on_event(Event::ServerUp {
+                lab_id: lab_id.clone(),
+            });
             true
         }
         PreflightResult::Down(reason) => {
@@ -76,8 +99,7 @@ pub async fn run_locked(
     // ── ۳. teardown این lab قبل از رفتن به بعدی ──
     dbox::teardown(lab, ctx.auto_manage_box, &ctx.observer).await;
 
-    // ★ ۴. اگه fuzz واقعاً اجرا شد، state رو عوض کن. وگرنه lab رو
-    // untouched بذار (نه failed) — چون تست نشده.
+    // ── ۴. state ──
     if should_fuzz {
         Lab::finish(lab, &ctx.run_lock, success, attempts);
     } else {
@@ -94,7 +116,8 @@ async fn execute_lab(
     let executor = lab.build_executor()?;
     let evaluator = lab.build_evaluator();
     let task_type = lab.effective_task_type();
-    let config = lab.build_config(task_type);
+    let mut config = lab.build_config(task_type);
+    config.cancel = Some(ctx.cancel.clone());
 
     let system_prompt = lab.render_system_prompt(&ctx.prefix);
     let user_input = goal.unwrap_or_else(|| lab.default_goal());

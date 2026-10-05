@@ -434,6 +434,9 @@ pub async fn run_all(State(app): State<AppCtx>) -> impl IntoResponse {
 
     tokio::spawn(async move {
         for lab in labs_snapshot.iter() {
+             if ctx.cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
             runner::run_lab(&ctx, lab, &labs_snapshot, None).await;
         }
     });
@@ -559,4 +562,17 @@ pub async fn set_provider(
     *app.ctx.provider.write().unwrap() = new_provider;
 
     (StatusCode::OK, "switched").into_response()
+}
+
+/// علامت‌گذاری برای متوقف‌کردن اجرای فعلی. از پنل وب یا از هر جای دیگه
+/// صدا زده می‌شه. flag رو ست می‌کنه و فوراً برمی‌گرده؛ engine تو حلقه‌ی
+/// بعدی خودش متوقف می‌شه.
+pub async fn stop_lab(State(app): State<AppCtx>) -> impl IntoResponse {
+    let running_id = app.ctx.run_lock.lock().unwrap().as_ref().map(|l| l.id());
+    match running_id {
+        Some(id) => eprintln!("[STOP] requested for lab '{}'", id),
+        None => eprintln!("[STOP] requested, but no lab is running"),
+    }
+    app.ctx.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+    (StatusCode::OK, "stopping...").into_response()
 }

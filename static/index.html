@@ -17,7 +17,6 @@
   html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;overflow:hidden}
   .app{display:grid;grid-template-columns:320px 1fr;height:100vh}
 
-  /* ═══ Sidebar ═══ */
   .sidebar{background:var(--panel-2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
   .brand{padding:18px 22px 14px;border-bottom:1px solid var(--border)}
   .brand h1{font-size:15px;font-weight:700;letter-spacing:0.5px;display:flex;align-items:center;gap:8px}
@@ -69,7 +68,6 @@
   .lab-mini-bar{margin-top:8px;height:4px;background:var(--border);border-radius:2px;overflow:hidden}
   .lab-mini-fill{height:100%;transition:width 0.4s ease,background 0.4s ease;min-width:2px}
 
-  /* ═══ lab badges (server up / down / setup) ═══ */
   .lab-badge{
     font-size:9px;padding:2px 6px;border-radius:8px;
     font-weight:700;letter-spacing:0.3px;text-transform:uppercase;
@@ -79,7 +77,6 @@
   .lab-badge.setup{background:var(--yellow);color:#1a1a1a;}
   .lab-badge.up{background:var(--green);color:white;opacity:0.7;}
 
-  /* ═══ Main ═══ */
   .main{display:flex;flex-direction:column;overflow:hidden}
   .main-header{padding:20px 32px;border-bottom:1px solid var(--border);background:var(--panel-2);display:flex;align-items:center;justify-content:space-between;gap:16px}
   .main-title h2{font-size:17px;font-weight:600;margin-bottom:3px}
@@ -104,6 +101,8 @@
   button.primary:hover:not(:disabled){background:#4acd5f;border-color:#4acd5f}
   button.danger{background:transparent;border-color:var(--red);color:var(--red)}
   button.danger:hover:not(:disabled){background:var(--red);border-color:var(--red);color:white}
+  button.stop{background:var(--red);border-color:var(--red);color:white}
+  button.stop:hover:not(:disabled){background:#ff6b62;border-color:#ff6b62}
   .actions{display:flex;gap:8px;padding:0 32px 16px;flex-wrap:wrap}
 
   .info-grid{display:grid;grid-template-columns:1fr;gap:20px}
@@ -152,140 +151,49 @@
   .empty .icon{font-size:48px;opacity:0.3}
   .empty .msg{font-size:14px}
 
-  /* ═══ Welcome screen ═══ */
   .welcome{display:flex;align-items:center;justify-content:center;min-height:100%;padding:40px 20px}
   .welcome-inner{max-width:760px;width:100%}
-
   .welcome-hero{text-align:center;margin-bottom:36px}
-  .welcome-hero .shield{
-    font-size:64px;line-height:1;
-    display:inline-block;
-    filter:drop-shadow(0 0 24px rgba(78,161,255,0.25));
-    margin-bottom:16px;
-  }
-  .welcome-hero h1{
-    font-size:32px;font-weight:700;letter-spacing:6px;
-    background:linear-gradient(135deg,#e6edf3 30%,#4ea1ff);
-    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-    background-clip:text;
-    margin-bottom:8px;
-  }
-  .welcome-hero .tagline{
-    font-size:14px;color:var(--text-dim);
-    max-width:560px;margin:0 auto;
-    line-height:1.6;
-  }
-
-  .welcome-stats{
-    display:grid;grid-template-columns:repeat(4,1fr);gap:12px;
-    margin-bottom:28px;
-  }
-  .stat-card{
-    background:var(--panel);border:1px solid var(--border);
-    border-radius:10px;padding:16px 12px;text-align:center;
-    transition:border-color 0.15s;
-  }
+  .welcome-hero .shield{font-size:64px;line-height:1;display:inline-block;filter:drop-shadow(0 0 24px rgba(78,161,255,0.25));margin-bottom:16px;}
+  .welcome-hero h1{font-size:32px;font-weight:700;letter-spacing:6px;background:linear-gradient(135deg,#e6edf3 30%,#4ea1ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:8px;}
+  .welcome-hero .tagline{font-size:14px;color:var(--text-dim);max-width:560px;margin:0 auto;line-height:1.6;}
+  .welcome-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px;}
+  .stat-card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px 12px;text-align:center;transition:border-color 0.15s;}
   .stat-card:hover{border-color:var(--border-2)}
-  .stat-card .num{
-    font-family:var(--mono);font-size:26px;font-weight:700;
-    line-height:1.1;margin-bottom:4px;
-  }
-  .stat-card .label{
-    font-size:10px;color:var(--text-dim);
-    text-transform:uppercase;letter-spacing:1px;font-weight:600;
-  }
+  .stat-card .num{font-family:var(--mono);font-size:26px;font-weight:700;line-height:1.1;margin-bottom:4px;}
+  .stat-card .label{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;font-weight:600;}
   .stat-card.total .num{color:var(--text)}
   .stat-card.passed .num{color:var(--green)}
   .stat-card.failed .num{color:var(--red)}
   .stat-card.idle .num{color:var(--text-dim)}
-
   .welcome-section{margin-bottom:24px}
-  .welcome-section h3{
-    font-size:10px;color:var(--text-dim);
-    text-transform:uppercase;letter-spacing:1.2px;font-weight:600;
-    margin-bottom:12px;
-    display:flex;align-items:center;gap:10px;
-  }
-  .welcome-section h3::after{
-    content:'';flex:1;height:1px;background:var(--border);
-  }
+  .welcome-section h3{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.2px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:10px;}
+  .welcome-section h3::after{content:'';flex:1;height:1px;background:var(--border);}
   .welcome-list{list-style:none;display:flex;flex-direction:column;gap:8px}
-  .welcome-list li{
-    display:flex;align-items:center;gap:12px;
-    padding:10px 14px;
-    background:var(--panel);border:1px solid var(--border);
-    border-radius:8px;
-    font-size:13px;color:var(--text-dim);
-    transition:border-color 0.15s;
-  }
+  .welcome-list li{display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--panel);border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--text-dim);transition:border-color 0.15s;}
   .welcome-list li:hover{border-color:var(--border-2);color:var(--text)}
-  .welcome-list .ico{
-    font-size:16px;flex-shrink:0;width:22px;text-align:center;
-  }
-  .welcome-list code{
-    font-family:var(--mono);font-size:12px;
-    background:var(--panel-2);padding:2px 6px;border-radius:4px;
-    color:var(--accent);
-  }
-
-  .welcome-config{
-    display:flex;flex-wrap:wrap;gap:8px 20px;
-    padding:14px 16px;
-    background:var(--panel-2);border:1px solid var(--border);
-    border-radius:8px;
-    font-size:12px;font-family:var(--mono);color:var(--text-dim);
-  }
+  .welcome-list .ico{font-size:16px;flex-shrink:0;width:22px;text-align:center;}
+  .welcome-list code{font-family:var(--mono);font-size:12px;background:var(--panel-2);padding:2px 6px;border-radius:4px;color:var(--accent);}
+  .welcome-config{display:flex;flex-wrap:wrap;gap:8px 20px;padding:14px 16px;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:var(--mono);color:var(--text-dim);}
   .welcome-config .k{color:var(--text-faint)}
   .welcome-config .v{color:var(--text)}
-
-  .box-warning{
-    padding:16px 18px;
-    background:rgba(210,153,34,0.08);
-    border:1px solid var(--yellow);
-    border-radius:8px;
-    font-size:13px;
-    line-height:1.7;
-    color:var(--text);
-  }
+  .box-warning{padding:16px 18px;background:rgba(210,153,34,0.08);border:1px solid var(--yellow);border-radius:8px;font-size:13px;line-height:1.7;color:var(--text);}
   .box-warning p{margin-bottom:8px;}
   .box-warning p:last-child{margin-bottom:0;}
   .box-warning strong{color:var(--yellow);}
-  .box-warning code{
-    font-family:var(--mono);font-size:12px;
-    background:var(--panel-2);padding:2px 6px;border-radius:4px;
-    color:var(--accent);
-  }
+  .box-warning code{font-family:var(--mono);font-size:12px;background:var(--panel-2);padding:2px 6px;border-radius:4px;color:var(--accent);}
 
-  /* ═══ Toast ═══ */
   .toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;font-size:13px;font-weight:500;color:white;background:var(--green);opacity:0;transform:translateY(10px);transition:all 0.25s;pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:1000}
   .toast.show{opacity:1;transform:translateY(0)}
   .toast.err{background:var(--red)}
 
-  /* ═══ Modal ═══ */
-  .modal-overlay{
-    position:fixed;inset:0;background:rgba(0,0,0,0.6);
-    display:flex;align-items:center;justify-content:center;
-    z-index:900;backdrop-filter:blur(2px);
-  }
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:900;backdrop-filter:blur(2px);}
   .modal-overlay.hidden{display:none}
-  .modal{
-    background:var(--panel);border:1px solid var(--border-2);
-    border-radius:10px;padding:24px;min-width:440px;max-width:540px;
-    box-shadow:0 20px 60px rgba(0,0,0,0.7);
-    max-height:90vh;overflow-y:auto;
-  }
+  .modal{background:var(--panel);border:1px solid var(--border-2);border-radius:10px;padding:24px;min-width:440px;max-width:540px;box-shadow:0 20px 60px rgba(0,0,0,0.7);max-height:90vh;overflow-y:auto;}
   .modal h3{font-size:15px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
   .modal label{display:block;font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:6px;margin-top:12px}
-  .modal input,.modal select{
-    width:100%;background:var(--panel-2);color:var(--text);
-    border:1px solid var(--border-2);border-radius:6px;
-    padding:8px 12px;font-size:13px;font-family:var(--mono);
-  }
-  .modal select{
-    appearance:none;cursor:pointer;
-    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path fill='%238b98a9' d='M5 7L1 3h8z'/></svg>");
-    background-repeat:no-repeat;background-position:right 10px center;padding-right:28px;
-  }
+  .modal input,.modal select{width:100%;background:var(--panel-2);color:var(--text);border:1px solid var(--border-2);border-radius:6px;padding:8px 12px;font-size:13px;font-family:var(--mono);}
+  .modal select{appearance:none;cursor:pointer;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path fill='%238b98a9' d='M5 7L1 3h8z'/></svg>");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px;}
   .modal input:focus,.modal select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(78,161,255,0.1)}
   .modal .hint{font-size:11px;color:var(--text-faint);margin-top:4px;font-family:var(--mono)}
   .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
@@ -334,7 +242,6 @@
   </main>
 </div>
 
-<!-- New Lab Modal -->
 <div class="modal-overlay hidden" id="new-lab-modal">
   <div class="modal">
     <h3>➕ Create a new lab</h3>
@@ -372,8 +279,8 @@
     </div>
 
     <label for="new-box">Box compose_dir (optional)</label>
-    <input id="new-box" placeholder="/home/you/vulhub/httpd/CVE-2021-41773" autocomplete="off">
-    <div class="hint">absolute path to docker-compose.yml folder</div>
+    <input id="new-box" placeholder="~/vulhub-master/httpd/CVE-2021-41773" autocomplete="off">
+    <div class="hint">absolute or ~/ path to docker-compose.yml folder</div>
 
     <label for="new-max">Max attempts</label>
     <input id="new-max" type="number" value="5" min="1" max="50">
@@ -390,9 +297,6 @@
 <div class="toast" id="toast"></div>
 
 <script>
-// ═══════════════════════════════════════════════════════════════
-// State
-// ═══════════════════════════════════════════════════════════════
 let labs = [];
 let currentIdx = null;
 let currentTab = 'overview';
@@ -467,7 +371,7 @@ function attemptsUsed(status) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Welcome screen
+// Welcome
 // ═══════════════════════════════════════════════════════════════
 function renderWelcome() {
   const el = $('main-content');
@@ -485,7 +389,6 @@ function renderWelcome() {
   el.innerHTML = `
     <div class="welcome">
       <div class="welcome-inner">
-
         <div class="welcome-hero">
           <div class="shield">🛡</div>
           <h1>AEGIS</h1>
@@ -497,74 +400,31 @@ function renderWelcome() {
         </div>
 
         <div class="welcome-stats">
-          <div class="stat-card total">
-            <div class="num">${total}</div>
-            <div class="label">Labs</div>
-          </div>
-          <div class="stat-card passed">
-            <div class="num">${passed}</div>
-            <div class="label">Passed</div>
-          </div>
-          <div class="stat-card failed">
-            <div class="num">${failed}</div>
-            <div class="label">Failed</div>
-          </div>
-          <div class="stat-card idle">
-            <div class="num">${idle}</div>
-            <div class="label">Untouched</div>
-          </div>
+          <div class="stat-card total"><div class="num">${total}</div><div class="label">Labs</div></div>
+          <div class="stat-card passed"><div class="num">${passed}</div><div class="label">Passed</div></div>
+          <div class="stat-card failed"><div class="num">${failed}</div><div class="label">Failed</div></div>
+          <div class="stat-card idle"><div class="num">${idle}</div><div class="label">Untouched</div></div>
         </div>
 
         <div class="welcome-section">
           <h3>⚠️ Box targets</h3>
           <div class="box-warning">
-            <p>
-              Each lab declares its own target in
-              <code>labs/*.yaml</code> under the
-              <code>box.compose_dir</code> field.
-            </p>
-            <p>
-              <strong>SSRF labs (1–6):</strong> use the bundled
-              <code>boxes/ssrf</code> (already in this project).
-            </p>
-            <p>
-              <strong>CVE labs:</strong> point
-              <code>box.compose_dir</code> at your own vulhub clone.
-              Clone it with:
-              <code>git clone https://github.com/vulhub/vulhub ~/vulhub-master</code>
-            </p>
-            <p>
-              Before each run, Aegis checks whether the target is up.
-              If it's down and a box path is set, it starts the box
-              automatically. If it's still down, the fuzz is skipped —
-              nothing is added to the report.
-            </p>
+            <p>Each lab declares its own target in <code>labs/*.yaml</code> under the <code>box.compose_dir</code> field.</p>
+            <p><strong>SSRF labs (1–6):</strong> use the bundled <code>boxes/ssrf</code> (already in this project).</p>
+            <p><strong>CVE labs:</strong> point <code>box.compose_dir</code> at your own vulhub clone. Clone it with: <code>git clone https://github.com/vulhub/vulhub ~/vulhub-master</code></p>
+            <p>Before each run, Aegis checks whether the target is up. If down and a box path is set, it starts the box. If still down, fuzzing is skipped — nothing is added to the report.</p>
           </div>
         </div>
 
         <div class="welcome-section">
           <h3>Quick start</h3>
           <ul class="welcome-list">
-            <li>
-              <span class="ico">📋</span>
-              <span>Pick a lab from the sidebar to see its details.</span>
-            </li>
-            <li>
-              <span class="ico">▶</span>
-              <span>Run it with <code>▶ Run</code> — or all of them with <code>▶ Run all</code>.</span>
-            </li>
-            <li>
-              <span class="ico">📝</span>
-              <span>Edit a lab's <code>YAML</code> and save; changes apply immediately.</span>
-            </li>
-            <li>
-              <span class="ico">📄</span>
-              <span>Each successful run produces a report under the <code>Reports</code> tab.</span>
-            </li>
-            <li>
-              <span class="ico">➕</span>
-              <span>Add a new lab with <code>+ New</code> — SSRF or raw HTTP (for CVEs).</span>
-            </li>
+            <li><span class="ico">📋</span><span>Pick a lab from the sidebar to see its details.</span></li>
+            <li><span class="ico">▶</span><span>Run it with <code>▶ Run</code> — or all of them with <code>▶ Run all</code>.</span></li>
+            <li><span class="ico">■</span><span>While running, hit <code>■ Stop</code> to cancel cleanly.</span></li>
+            <li><span class="ico">📝</span><span>Edit a lab's <code>YAML</code> and save; changes apply immediately.</span></li>
+            <li><span class="ico">📄</span><span>Each successful run produces a report under the <code>Reports</code> tab.</span></li>
+            <li><span class="ico">➕</span><span>Add a new lab with <code>+ New</code> — SSRF or raw HTTP (for CVEs).</span></li>
           </ul>
         </div>
 
@@ -576,7 +436,6 @@ function renderWelcome() {
             <span><span class="k">endpoint:</span> <span class="v">${esc(providerUrl)}</span></span>
           </div>
         </div>
-
       </div>
     </div>
   `;
@@ -642,11 +501,18 @@ function updateHeaderStatus() {
     badge.className = 'status-badge ' + cls;
     badge.innerHTML = `<span class="dot"></span>${esc(stateLabel(lab.status))}`;
   }
+  const running = lab.status && lab.status.kind === 'running';
+
   const runBtn = $('run-btn');
   if (runBtn) {
-    const running = lab.status && lab.status.kind === 'running';
     runBtn.disabled = running;
     runBtn.innerHTML = running ? '⏳ Running...' : '▶ Run';
+  }
+
+  // ═══ Stop button: فقط وقتی در حال اجراست ═══
+  const stopBtn = $('stop-btn');
+  if (stopBtn) {
+    stopBtn.style.display = running ? 'inline-flex' : 'none';
   }
 }
 
@@ -851,6 +717,7 @@ async function renderMain() {
     </div>
     <div class="actions">
       <button class="primary" id="run-btn" onclick="runCurrent()">▶ Run</button>
+      <button class="stop" id="stop-btn" onclick="stopCurrent()" style="display:none">■ Stop</button>
       <button onclick="switchTab('yaml')">📝 Edit YAML</button>
       <button onclick="switchTab('reports')">📄 Reports</button>
       <button onclick="goHome()" title="Back to welcome screen">⌂ Home</button>
@@ -874,7 +741,6 @@ async function renderTabBody() {
   const el = $('tab-body');
   if (!el) return;
 
-  // ─── Overview ───
   if (currentTab === 'overview') {
     const lab = labs[currentIdx];
     const maxA = lab.max_attempts || 5;
@@ -954,7 +820,6 @@ async function renderTabBody() {
     return;
   }
 
-  // ─── YAML ───
   if (currentTab === 'yaml') {
     el.innerHTML = `
       <div class="editor-wrap">
@@ -965,15 +830,12 @@ async function renderTabBody() {
           <span class="editor-status" id="yaml-status"></span>
         </div>
         <textarea class="yaml-editor" id="yaml-editor" spellcheck="false"></textarea>
-        <div class="editor-hint">
-          Changing <code>meta.id</code> renames the YAML file on disk (must be unique).
-        </div>
+        <div class="editor-hint">Changing <code>meta.id</code> renames the YAML file on disk (must be unique).</div>
       </div>`;
     await reloadYaml();
     return;
   }
 
-  // ─── Reports list ───
   if (currentTab === 'reports') {
     el.innerHTML = '<div class="empty"><div class="msg">Loading reports...</div></div>';
     try {
@@ -994,7 +856,6 @@ async function renderTabBody() {
     return;
   }
 
-  // ─── Report detail ───
   if (currentTab === 'report-detail') {
     el.innerHTML = '<div class="empty"><div class="msg">Loading...</div></div>';
     try {
@@ -1017,12 +878,51 @@ async function runCurrent() {
   if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Running...'; }
   try {
     const r = await fetch(`/api/lab/${currentIdx}/run`, { method: 'POST' });
-    if (r.ok) { toast('Started'); startPolling(); }
+    if (r.ok) {
+      toast('Started');
+      startPolling();
+      // فوراً stop button رو نشون بده
+      const stopBtn = $('stop-btn');
+      if (stopBtn) stopBtn.style.display = 'inline-flex';
+    }
     else if (r.status === 409) { toast('Another lab is running', true); if (btn) { btn.disabled = false; btn.innerHTML = '▶ Run'; } }
     else { toast('Failed', true); if (btn) { btn.disabled = false; btn.innerHTML = '▶ Run'; } }
   } catch (e) {
     toast('Network error', true);
     if (btn) { btn.disabled = false; btn.innerHTML = '▶ Run'; }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Stop
+// ═══════════════════════════════════════════════════════════════
+let stopDebounce = false;
+async function stopCurrent() {
+  if (stopDebounce) return;
+  stopDebounce = true;
+
+  const btn = $('stop-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Stopping...'; }
+
+  try {
+    const r = await fetch('/api/stop', { method: 'POST' });
+    if (r.ok) {
+      toast('Stopping...');
+      // تا ۱۵ ثانیه قفل بمونه، بعد آزاد شه (اگه lab سریع stop نشد، کاربر دوباره بزنه)
+      setTimeout(() => {
+        stopDebounce = false;
+        const b = $('stop-btn');
+        if (b) { b.disabled = false; b.innerHTML = '■ Stop'; }
+      }, 15000);
+    } else {
+      toast('Stop failed', true);
+      stopDebounce = false;
+      if (btn) { btn.disabled = false; btn.innerHTML = '■ Stop'; }
+    }
+  } catch (e) {
+    toast('Network error', true);
+    stopDebounce = false;
+    if (btn) { btn.disabled = false; btn.innerHTML = '■ Stop'; }
   }
 }
 
@@ -1034,12 +934,12 @@ function startPolling() {
     if (currentIdx !== null && currentTab === 'overview') await renderTabBody();
     updateApplyBtn();
     ticks++;
-    if (ticks > 300) clearInterval(pollingTimer);
+    if (ticks > 600) clearInterval(pollingTimer);
   }, 1000);
 }
 
 // ═══════════════════════════════════════════════════════════════
-// YAML save / reload / delete
+// YAML
 // ═══════════════════════════════════════════════════════════════
 async function reloadYaml() {
   const el = $('yaml-editor');

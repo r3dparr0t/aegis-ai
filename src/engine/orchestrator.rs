@@ -32,12 +32,33 @@ pub struct FallbackStrategy {
     pub target_model: String,
 }
 
+/// Future که تا وقتی cancel flag صفر باشه pending می‌مونه.
+/// به‌محض اینکه true بشه، resolve می‌شه — که `tokio::select!` بتونه
+/// وسط یه LLM call، اجرا رو لغو کنه.
+async fn wait_for_cancel(cancel: &Option<Arc<std::sync::atomic::AtomicBool>>) {
+    match cancel {
+        Some(flag) => {
+            loop {
+                if flag.load(std::sync::atomic::Ordering::SeqCst) {
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        }
+        None => {
+            // اگه cancel نداریم، این future هیچ‌وقت resolve نمی‌شه
+            std::future::pending::<()>().await
+        }
+    }
+}
+
 pub struct EngineConfig {
     pub max_attempts: u32,
     pub task_type: String,
     pub expected_body_key: Option<String>,
     pub hints: Vec<Hint>,
     pub fallback: Option<FallbackStrategy>,
+    pub cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 struct AppliedLesson {
@@ -126,7 +147,7 @@ impl ExecutionEngine {
                 EngineError::Database(e.to_string())
             })?;
 
-        let mut current_attempt = 1;
+        let mut current_attempt: u32 = 1;
         let mut accumulated_lessons: Vec<AppliedLesson> = Vec::new();
 
         // provider محلیِ همین اجرا — جدا از self.provider (که global/shared
@@ -154,8 +175,31 @@ impl ExecutionEngine {
         }
 
         self.state(ExecutionState::Preparing);
+        // check if cancel the execution
+        if let Some(cancel) = &self.config.cancel {
+            if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                self.state(ExecutionState::Failed {
+                    reason: "cancelled by user".to_string(),
+                    attempts_count: current_attempt.saturating_sub(1),
+                });
+                return Err(EngineError::Cancelled { execution_id });
+            }
+        }
 
         loop {
+           if let Some(cancel) = &self.config.cancel {
+                if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                    eprintln!(
+                        "[STOP] lab '{}' cancelled at attempt {} of {}",
+                        self.config.task_type, current_attempt, self.config.max_attempts
+                    );
+                    self.state(ExecutionState::Failed {
+                        reason: "cancelled by user".to_string(),
+                        attempts_count: current_attempt.saturating_sub(1),
+                    });
+                    return Err(EngineError::Cancelled { execution_id: execution_id.clone() });
+                }
+            }
             if current_attempt > self.config.max_attempts {
                 self.emit_error(
                     "engine",
@@ -265,20 +309,25 @@ impl ExecutionEngine {
             // LLM call
             // -------------------------------------------------------------------
             self.state(ExecutionState::Generating);
-            let response = match active_provider.generate(&request).await {
-                Ok(res) => res,
-                Err(err) => {
-                    if err.is_retryable() && current_attempt < self.config.max_attempts {
-                        self.emit_error(
-                            "llm",
-                            format!("retryable transport error, will retry: {}", err),
-                            false,
-                        );
-                        current_attempt += 1;
-                        continue;
+            let response = tokio::select! {
+                res = active_provider.generate(&request) => {
+                    match res {
+                        Ok(r) => r,
+                        Err(err) => {
+                            if err.is_retryable() && current_attempt < self.config.max_attempts {
+                                self.emit_error("llm",
+                                    format!("retryable transport error, will retry: {}", err), false);
+                                current_attempt += 1;
+                                continue;
+                            }
+                            self.emit_error("llm", format!("transport error: {}", err), true);
+                            return Err(EngineError::Llm(err));
+                        }
                     }
-                    self.emit_error("llm", format!("transport error: {}", err), true);
-                    return Err(EngineError::Llm(err));
+                }
+                _ = wait_for_cancel(&self.config.cancel) => {
+                    eprintln!("[STOP] cancelled during LLM call");
+                    return Err(EngineError::Cancelled { execution_id: execution_id.clone() });
                 }
             };
 

@@ -29,6 +29,7 @@ pub struct LabContext {
     pub run_lock: RunLock,
     pub reports_dir: std::path::PathBuf,
     pub auto_manage_box: bool,
+    pub cancel: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// اجرای یه Lab و برگرداندن (success, attempts).

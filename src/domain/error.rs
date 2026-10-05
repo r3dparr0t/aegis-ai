@@ -41,6 +41,7 @@ pub enum EngineError {
     Evaluation(EvaluationError),
     Database(String),
     MaxAttemptsExceeded { execution_id: String, attempts: u32 },
+    Cancelled { execution_id: String },
 }
 
 impl fmt::Display for EngineError {
@@ -51,7 +52,8 @@ impl fmt::Display for EngineError {
             EngineError::Database(err) => write!(f, "Database Error: {}", err),
             EngineError::MaxAttemptsExceeded { execution_id, attempts } => {
                 write!(f, "Execution {} failed after {} attempts", execution_id, attempts)
-            }
+            },
+            EngineError::Cancelled { .. } => write!(f, "cancelled by user"),
         }
     }
 }

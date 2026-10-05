@@ -1,5 +1,6 @@
 // src/labs/dbox.rs
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,104 +12,95 @@ pub enum PreflightResult {
     Down(String),
 }
 
-/// قبل از اجرای هر lab:
-/// ۱. اگه auto_manage روشنه و این lab `box` داره: همه‌ی boxهای دیگه‌ای
-///    که تو all_labs هستن رو down می‌کنه، بعد dbox خودش رو up.
-/// ۲. TCP connect ساده به target.url می‌زنه.
-/// ۳. Up یا Down(reason) برمی‌گردونه.
+/// قبل از اجرای این lab:
+/// ۱. اگه سرورش بالاست → همون‌جا تموم.
+/// ۲. اگه dbox داره و auto_manage روشنه → فقط dbox *خودش* رو up می‌کنه.
+/// ۳. صبر، بعد دوباره health check.
 ///
-/// مختصات کلی:
-/// - هیچ resolve مسیری انجام نمی‌شه. `compose_dir` یا مطلقه یا نسبت به CWD.
-/// - برنامه هرگز panic نمی‌کنه: هر خطای docker/TCP فقط log می‌شه.
+/// ⚠️ به هیچ box دیگه‌ای دست نمی‌زنه. اگه پورت با lab دیگه‌ای conflict بشه،
+/// `docker compose up -d` fail می‌شه و error تو log میاد — کاربر خودش
+/// تصمیم می‌گیره که اون یکی رو down کنه یا نه.
 pub async fn preflight(
     lab: &Arc<Lab>,
-    all_labs: &[Arc<Lab>],
+    _all_labs: &[Arc<Lab>],   // ignored — عمداً. هیچ lab دیگه‌ای رو نمی‌بینیم.
     auto_manage: bool,
+    cancel: &Arc<std::sync::atomic::AtomicBool>,
     observer: &SharedObserver,
 ) -> PreflightResult {
     let spec = lab.spec();
     let my_dbox = spec.dbox.as_ref();
-    
-    if my_dbox.is_some() && !auto_manage {
-        observer.on_event(Event::Error {
-            context: "box",
-            message: format!(
-                "lab '{}' has a box but auto_manage_box=false in aegis.toml — skipping auto-up",
-                lab.id()
-            ),
-            fatal: false,
-        });
-    }
-    println!("[DEBUG] for running docker compose up -d  auto: {}. mybox.is some?:{}", auto_manage, my_dbox.is_some());
-        
-    // ۱. اگه auto_manage روشنه و این lab dbox داره: بقیه رو down، خودمون رو up
-    if auto_manage && my_dbox.is_some() {
-        // for debug
-        eprintln!("[DEBUG] preflight: auto_manage={}, box={:?}",
-            auto_manage,
-            my_dbox.map(|b| &b.compose_dir));
-
-        let mc = my_dbox.unwrap();
-
-        // down همه‌ی boxهای دیگه
-        for other in all_labs {
-            if Arc::ptr_eq(other, lab) {
-                continue;
-            }
-            let os = other.spec();
-            if let Some(ob) = os.dbox.as_ref() {
-                let dir = expand_tilde(&ob.compose_dir);
-                let _ = tokio::process::Command::new("docker")
-                    .args(["compose", "down"])
-                    .current_dir(&dir)
-                    .output()
-                    .await;
-                observer.on_event(Event::BoxDown {
-                    compose_dir: dir.display().to_string(),
-                });
-            }
-        }
-
-        // up خودمون
-        let my_dir = expand_tilde(&mc.compose_dir);
-        eprintln!("[DEBUG] running docker compose up -d in {:?}", my_dir);
-        match tokio::process::Command::new("docker")
-            .args(["compose", "up", "-d"])
-            .current_dir(&my_dir)
-            .output()
-            .await
-        {
-            Ok(o) if o.status.success() => {
-                observer.on_event(Event::BoxUp {
-                    compose_dir: my_dir.display().to_string(),
-                });
-            }
-            Ok(o) => {
-                let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
-                observer.on_event(Event::Error {
-                    context: "box",
-                    message: format!("docker compose up failed in {}: {}", my_dir.display(), err),
-                    fatal: false,
-                });
-            }
-            Err(e) => {
-                observer.on_event(Event::Error {
-                    context: "box",
-                    message: format!("could not run docker compose: {}", e),
-                    fatal: false,
-                });
-            }
-        }
-
-        let wait = mc.wait_secs.max(1);
-        tokio::time::sleep(Duration::from_secs(wait)).await;
-    }
-
-    // ۲. health check
+    let base_url = spec.target.base_url().to_string();
     let path = my_dbox
         .map(|b| b.health_check_path.as_str())
         .unwrap_or("/");
-    health_check(&spec.target.base_url().to_string(), path, 3).await
+
+    // ── ۱. اول چک کن شاید سرور از قبل بالاست ──
+    if let PreflightResult::Up = health_check(&base_url, path, 3).await {
+        return PreflightResult::Up;
+    }
+
+    // ── ۲. اگه box نداریم یا auto_manage خاموشه، فقط Down برگردون ──
+    let Some(mc) = my_dbox else {
+        return PreflightResult::Down("target server is not reachable (no box to start)".into());
+    };
+    if !auto_manage {
+        return PreflightResult::Down(
+            "target server is not reachable (auto_manage_box = false)".into(),
+        );
+    }
+
+    // ── ۳. cancel check قبل از هر کار سنگین ──
+    if cancel.load(Ordering::SeqCst) {
+        return PreflightResult::Down("cancelled before box start".into());
+    }
+
+    // ── ۴. فقط box خودمون رو up کن ──
+    let my_dir = expand_tilde(&mc.compose_dir);
+    match tokio::process::Command::new("docker")
+        .args(["compose", "up", "-d"])
+        .current_dir(&my_dir)
+        .output()
+        .await
+    {
+        Ok(o) if o.status.success() => {
+            observer.on_event(Event::BoxUp {
+                compose_dir: my_dir.display().to_string(),
+            });
+        }
+        Ok(o) => {
+            let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+            observer.on_event(Event::Error {
+                context: "box",
+                message: format!(
+                    "docker compose up failed in {}: {}",
+                    my_dir.display(),
+                    err
+                ),
+                fatal: false,
+            });
+            // همچنان به health check می‌ریم — شاید سرور از قبل نیمه‌بالا بوده
+        }
+        Err(e) => {
+            observer.on_event(Event::Error {
+                context: "box",
+                message: format!("could not run docker compose: {}", e),
+                fatal: false,
+            });
+        }
+    }
+
+    // ── ۵. صبر کن، ولی هر ۱۰۰ms cancel رو چک کن ──
+    let wait = mc.wait_secs.max(1);
+    let steps = (wait * 10).max(1);
+    for _ in 0..steps {
+        if cancel.load(Ordering::SeqCst) {
+            return PreflightResult::Down("cancelled while waiting for box".into());
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // ── ۶. دوباره چک کن ──
+    health_check(&base_url, path, 3).await
 }
 
 /// TCP connect ساده. کافیه پورت باز باشه — حتی اگه سرور ۴۰۴ بده.
@@ -129,8 +121,7 @@ async fn health_check(base_url: &str, path: &str, timeout_secs: u64) -> Prefligh
     }
 }
 
-/// قبل از رفتن به لب بعدی، dbox این lab رو down کن. اگه این lab box
-/// نداشت یا auto_manage خاموش بود، هیچ کاری نکن. idempotent.
+/// بعد از اتمام اجرا، dbox این lab رو down کن. idempotent.
 pub async fn teardown(lab: &Arc<Lab>, auto_manage: bool, observer: &SharedObserver) {
     if !auto_manage {
         return;
@@ -150,7 +141,7 @@ pub async fn teardown(lab: &Arc<Lab>, auto_manage: bool, observer: &SharedObserv
     });
 }
 
-/// `~/foo` و `~` رو با $HOME جایگزین می‌کنه. Rust خودش این کار رو نمی‌کنه.
+/// `~/foo` و `~` رو با $HOME جایگزین می‌کنه.
 fn expand_tilde(path: &str) -> PathBuf {
     if path == "~" {
         if let Ok(home) = std::env::var("HOME") {
