@@ -1,9 +1,13 @@
 meta:
-  id: lab3_isolation
-  name: "Lab 3 — memory isolation test"
+  id: ssrf_isolation
+  name: "ssrf — memory isolation test"
   description: "Same scenario as Lab 1, but with a fresh task_type each run."
   order: 3
   tags: [memory, isolation]
+
+box:
+  compose_dir: "boxes/ssrf"
+  wait_secs: 3
 
 max_attempts: 5
 

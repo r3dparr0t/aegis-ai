@@ -4,11 +4,16 @@ use std::sync::Arc;
 use crate::{
     domain::LlmProvider,
     engine::ExecutionEngine,
+    events::Event,
     provider::OllamaProvider,
-    labs::vulhub,
 };
 
-use super::{lab::Lab, run_task, LabContext};
+use super::{
+    dbox::{self, PreflightResult},
+    lab::Lab,
+    run_task,
+    LabContext,
+};
 
 pub async fn run_lab(
     ctx: &LabContext,
@@ -32,24 +37,52 @@ pub async fn run_locked(
     all_labs: &[Arc<Lab>],
     goal: Option<String>,
 ) {
-    // ★ قبل از هر چیز، مطمئن شو vulhub درست بالاست
-    vulhub::ensure_running(
-        lab,
-        all_labs,
-        ctx.auto_manage_vulhub,
-        ctx.vulhub_root.as_deref(),
-    )
-    .await;
+    let lab_id = lab.id();
 
-    let (success, attempts) = match execute_lab(ctx, lab, goal).await {
-        Ok(r) => r,
-        Err(msg) => {
-            eprintln!("❌ Lab '{}' failed to start: {}", lab.id(), msg);
-            (false, 0)
+    // ── ۱. preflight ──
+    let preflight = dbox::preflight(lab, all_labs, ctx.auto_manage_box, &ctx.observer).await;
+
+    let should_fuzz = match preflight {
+        PreflightResult::Up => {
+            ctx.observer.on_event(Event::ServerUp { lab_id: lab_id.clone() });
+            true
+        }
+        PreflightResult::Down(reason) => {
+            ctx.observer.on_event(Event::ServerDown {
+                lab_id: lab_id.clone(),
+                reason: reason.clone(),
+            });
+            ctx.observer.on_event(Event::LabSkipped {
+                lab_id: lab_id.clone(),
+                reason,
+            });
+            false
         }
     };
 
-    Lab::finish(lab, &ctx.run_lock, success, attempts);
+    // ── ۲. fuzz (اگه server up بود) ──
+    let (success, attempts) = if should_fuzz {
+        match execute_lab(ctx, lab, goal).await {
+            Ok(r) => r,
+            Err(msg) => {
+                eprintln!("❌ Lab '{}' failed to start: {}", lab_id, msg);
+                (false, 0)
+            }
+        }
+    } else {
+        (false, 0)
+    };
+
+    // ── ۳. teardown این lab قبل از رفتن به بعدی ──
+    dbox::teardown(lab, ctx.auto_manage_box, &ctx.observer).await;
+
+    // ★ ۴. اگه fuzz واقعاً اجرا شد، state رو عوض کن. وگرنه lab رو
+    // untouched بذار (نه failed) — چون تست نشده.
+    if should_fuzz {
+        Lab::finish(lab, &ctx.run_lock, success, attempts);
+    } else {
+        Lab::finish_untouched(lab, &ctx.run_lock);
+    }
 }
 
 async fn execute_lab(
@@ -64,9 +97,6 @@ async fn execute_lab(
     let config = lab.build_config(task_type);
 
     let system_prompt = lab.render_system_prompt(&ctx.prefix);
-
-    // goal از پارامتر میاد (وب) یا از default خودِ lab (بدون prompt).
-    // هیچ‌وقت از stdin نمی‌خونیم — چون همه‌چیز از وب کنترل می‌شه.
     let user_input = goal.unwrap_or_else(|| lab.default_goal());
 
     let engine = ExecutionEngine::new(
@@ -90,35 +120,15 @@ async fn execute_lab(
     .await)
 }
 
-/// انتخاب provider. چون دیگه CLI نداریم، منطق «مدل بزرگ‌تر برای این lab» از
-/// خود spec خونده می‌شه — نه از prompt. اگه lab بخواد مدل بزرگ‌تر، از
-/// `default_bigger_model` استفاده می‌کنه؛ وگرنه provider پیش‌فرض ctx.
 async fn pick_provider(ctx: &LabContext, lab: &Lab) -> Arc<dyn LlmProvider> {
     let opts = lab.options();
     if !opts.allow_bigger_model || opts.default_bigger_model.is_empty() {
         return ctx.provider.read().unwrap().clone();
     }
-
-    // اگه provider فعلی Ollama هست، مدل بزرگ‌تر رو از همون سرور می‌گیریم
     let current = ctx.provider.read().unwrap().info();
     if current.kind != "ollama" {
         return ctx.provider.read().unwrap().clone();
     }
-
-    let model = choose_ollama_model_for_lab(&current.base_url, &opts.default_bigger_model).await;
+    let model = opts.default_bigger_model.clone();
     Arc::new(OllamaProvider::new(current.base_url, model))
-}
-
-/// نسخه‌ی ساده‌شده‌ی choose_ollama_model که از stdin نمی‌خونه — فقط اگه مدل
-/// تو لیست Ollama باشه برمی‌گردونه، وگرنه همون default رو استفاده می‌کنه.
-async fn choose_ollama_model_for_lab(base_url: &str, preferred: &str) -> String {
-    let models = crate::selection::fetch_ollama_models(base_url).await;
-    if models.iter().any(|m| m == preferred) {
-        preferred.to_string()
-    } else if !models.is_empty() {
-        // اگه مدل ترجیحی نصب نبود، اولین مدل موجود رو برمی‌گردونیم
-        models[0].clone()
-    } else {
-        preferred.to_string()
-    }
 }

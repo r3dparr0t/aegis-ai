@@ -1,0 +1,29 @@
+services:
+  vulnerable-api:
+    build: ./vulnerable_app
+    container_name: lab_vulnerable_api
+    ports:
+      - "5000:5000"
+    networks:
+      lab_network:
+
+  internal-admin:
+    build: ./internal_admin
+    container_name: lab_internal_admin
+    expose:
+      - "8080"
+    networks:
+      lab_network:
+        # IP ثابت تا هم ما هم مدل بتونیم روش حساب باز کنیم، حتی بعد از rebuild
+        ipv4_address: 172.28.0.10
+
+networks:
+  lab_network:
+    driver: bridge
+    # نکته: internal: true اینجا عمداً گذاشته نشده. تستش کردیم و باعث شد پورت 5000
+    # اصلاً از هاست قابل‌دسترس نباشه (Docker نمی‌تونه published port رو درست روی یک
+    # شبکه‌ی internal تنظیم کنه). لایه‌ی امنیتی واقعی همون قفس egress تو app.py است
+    # (is_egress_allowed) که مستقل از تنظیمات شبکه، قطعی و همیشه فعاله.
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

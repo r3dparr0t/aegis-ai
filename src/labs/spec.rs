@@ -40,8 +40,8 @@ pub struct LabSpec {
     /// باشه. provider عمومی/global دست‌نخورده می‌مونه.
     #[serde(default)]
     pub fallback_strategy: Option<FallbackSpec>,
-     #[serde(default)]
-    pub vulhub: Option<VulhubSpec>,
+    #[serde(default, rename = "box")]
+    pub dbox: Option<BoxSpec>,
 }
 
 /// `after_attempt: 3` یعنی: *بعد از* شکست‌خوردنِ کامل تلاش شماره‌ی ۳ (یعنی
@@ -163,13 +163,21 @@ pub struct LabOptions {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct VulhubSpec {
-    /// مسیر پوشه‌ی حاوی docker-compose.yml. اگه نسبی باشه، نسبت به
-    /// `paths.vulhub_root` تو aegis.toml تفسیر می‌شه.
+pub struct BoxSpec {
+    /// مسیر پوشه‌ی حاوی docker-compose.yml. اگه مطلق باشه، همون‌طور
+    /// استفاده می‌شه. اگه نسبی باشه، نسبت به CWD (محل اجرای `cargo run`)
+    /// تفسیر می‌شه. هیچ resolve پیچیده‌ای انجام نمی‌شه.
     pub compose_dir: String,
-    /// بعد از `docker compose up -d` چند ثانیه صبر کنیم (پیش‌فرض ۳).
     #[serde(default = "default_wait_secs")]
     pub wait_secs: u64,
+    /// مسیری برای TCP health check روی target.url. پیش‌فرض `/`.
+    #[serde(default = "default_health_path")]
+    pub health_check_path: String,
+    /// اگه این lab نیاز به setup دستی داره (مثل Drupal که باید از مرورگر
+    /// نصب شه)، این متن تو UI نشون داده می‌شه.
+    #[serde(default)]
+    pub setup_note: Option<String>,
 }
 
 fn default_wait_secs() -> u64 { 3 }
+fn default_health_path() -> String { "/".to_string() }

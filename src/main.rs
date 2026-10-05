@@ -89,8 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         observer: composite,
         run_lock: run_lock.clone(),
         reports_dir: config.paths.reports_dir.clone(),
-        auto_manage_vulhub: config.server.auto_manage_vulhub,
-        vulhub_root: config.paths.vulhub_root.clone(),
+        auto_manage_box: config.server.auto_manage_box,
     });
 
     let app_ctx = web::AppCtx {
@@ -178,19 +177,35 @@ async fn cli_mode(url: &str, labs: Arc<RwLock<Vec<Arc<Lab>>>>, ctx: Arc<LabConte
 fn print_banner(url: &str, config: &Config) {
     println!(
         r#"
-    _    _____ ____ ___ ____  
-   / \  | ____/ ___|_ _/ ___| 
-  / _ \ |  _|| |  _ | |\___ \ 
- / ___ \| |__| |_| || | ___) |
-/_/   \_\_____\____|___|____/ 
- SSRF Fuzzing Engine 🔴🟡🟢⚪
-═════════════════════════════════════════"#
+      _    _____ ____ ___ ____  
+     / \  | ____/ ___|_ _/ ___| 
+    / _ \ |  _|| |  _ | |\___ \ 
+   / ___ \| |__| |_| || | ___) |
+  /_/   \_\_____\____|___|____/ 
+   SSRF Fuzzing Engine 🔴🟡🟢⚪
+═══════════════════════════════════════════════════════════"#
     );
     println!("  🛡  Web panel live at {}", url);
     println!("  📂  labs: {}", config.paths.labs_dir.display());
     println!("  📂  reports: {}", config.paths.reports_dir.display());
-    println!("  ⌨️  CLI mode: cargo run -- --cli [lab_id]");
-    println!("  ✓  Ctrl+C to exit\n");
+    println!("  ⌨️  CLI mode: cargo run -- --cli [lab_id]\n  ✓  Ctrl+C to exit\n");
+ 
+    println!(r#"
+  ──────────────────────────────────────────────────────────
+    ⚠️  BOX PATHS                                           
+                                                            
+    Each lab declares its target in `labs/*.yaml` under     
+    `box.compose_dir`. Absolute paths are used as-is.       
+                                                            
+    For SSRF labs 1-5: default `boxes/ssrf` (bundled).      
+    For CVE labs: point `box.compose_dir` at your vulhub    
+    clone, e.g. ~/vulhub-master/httpd/CVE-2021-41773.       
+                                                            
+    Clone vulhub:                                           
+      git clone https://github.com/vulhub/vulhub ~/vulhub-master   
+  ──────────────────────────────────────────────────────────
+  "#);
+
 }
 
 fn print_menu(labs: &[Arc<Lab>]) {

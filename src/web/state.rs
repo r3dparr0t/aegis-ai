@@ -1,8 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{collections::HashMap, sync::{Arc, Mutex}};
 use serde::Serialize;
 use crate::events::{EngineObserver, Event};
 use crate::labs::RunLock;
-
 #[derive(Clone, Debug, Serialize)]
 pub struct LogLine {
     pub time: u64,
@@ -15,11 +14,15 @@ pub struct LogLine {
 /// منبع حقیقتِ وضعیت خودِ Lab (`Lab::state()`) ـه، نه این ساختار.
 pub struct WebState {
     pub log: Vec<LogLine>,
+    pub server_up: HashMap<String, bool>,   // lab_id → up?
 }
 
 impl WebState {
-    pub fn new() -> Self {
-        Self { log: Vec::new() }
+   pub fn new() -> Self {
+        Self {
+            log: Vec::new(),
+            server_up: HashMap::new(),
+        }
     }
 
     pub fn push(&mut self, icon: &str, text: impl Into<String>, kind: &str) {
@@ -101,6 +104,31 @@ impl EngineObserver for WebStateObserver {
                 );
             }
             Event::State { .. } => {}
+            Event::BoxUp { compose_dir } => {
+                s.push("🐳", format!("box up: {}", compose_dir), "state");
+            }
+            Event::BoxDown { compose_dir } => {
+                s.push("🐳", format!("box down: {}", compose_dir), "state");
+            }
+            Event::ServerUp { lab_id } => {
+                s.server_up.insert(lab_id.clone(), true);
+                s.push("🟢", format!("server up: {}", lab_id), "pass");
+            }
+            Event::ServerDown { lab_id, reason } => {
+                s.server_up.insert(lab_id.clone(), false);
+                s.push(
+                    "🔴",
+                    format!("server down: {} — {}", lab_id, reason.chars().take(80).collect::<String>()),
+                    "fail",
+                );
+            }
+            Event::LabSkipped { lab_id, reason } => {
+                s.push(
+                    "⏭",
+                    format!("{} skipped: {}", lab_id, reason.chars().take(80).collect::<String>()),
+                    "fail",
+                );
+            }
         }
     }
 }

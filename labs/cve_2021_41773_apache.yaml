@@ -5,6 +5,10 @@ meta:
   order: 100
   tags: [cve, apache, rce]
 
+box:
+  compose_dir: "~/vulhub-master/httpd/CVE-2021-41773"
+  wait_secs: 3
+
 max_attempts: 6
 
 target:
@@ -17,10 +21,6 @@ target:
 task:
   task_type: cve_2021_41773_apache
   default_goal: "Exploit CVE-2021-41773 to read /etc/passwd or execute `id`."
-
-vulhub:
-  compose_dir: "httpd/CVE-2021-41773"
-  wait_secs: 3
 
 evaluator:
   kind: regex

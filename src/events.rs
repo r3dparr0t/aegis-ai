@@ -27,6 +27,11 @@ pub enum Event {
         fatal: bool,
     },
     State { transition: ExecutionState },
+    BoxUp      { compose_dir: String },
+    BoxDown    { compose_dir: String },
+    ServerUp   { lab_id: String },
+    ServerDown { lab_id: String, reason: String },
+    LabSkipped { lab_id: String, reason: String },
 }
 
 /// هر کسی که می‌خواد eventها رو ببینه این trait رو پیاده می‌کنه.
@@ -93,6 +98,15 @@ impl EngineObserver for ConsoleObserver {
                 eprintln!("{} [{}] {}", tag, context, message);
             },
             Event::State { transition } => println!("🔷 [STATE] {}", transition),
+            Event::BoxUp { compose_dir } => println!("🐳 box up: {}", compose_dir),
+            Event::BoxDown { compose_dir } => println!("🐳 box down: {}", compose_dir),
+            Event::ServerUp { lab_id } => println!("✓ server up for '{}' — going to fuzz", lab_id),
+            Event::ServerDown { lab_id, reason } => {
+                println!("✗ server down for '{}': {}", lab_id, reason);
+            }
+            Event::LabSkipped { lab_id, reason } => {
+                println!("⏭  Lab '{}' skipped: {}", lab_id, reason);
+            }
         }
     }
 }

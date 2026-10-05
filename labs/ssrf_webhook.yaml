@@ -1,9 +1,13 @@
 meta:
-  id: lab2_webhook
-  name: "Lab 2 — /api/v2/webhook (naive blacklist)"
+  id: ssrf_webhook
+  name: "ssrf — /api/v2/webhook (naive blacklist)"
   description: "Webhook endpoint with naive blacklist on 'localhost' and '127.0.0.1'."
   order: 2
   tags: [ssrf, blacklist]
+
+box:
+  compose_dir: "boxes/ssrf"
+  wait_secs: 3
 
 max_attempts: 5
 

@@ -69,6 +69,16 @@
   .lab-mini-bar{margin-top:8px;height:4px;background:var(--border);border-radius:2px;overflow:hidden}
   .lab-mini-fill{height:100%;transition:width 0.4s ease,background 0.4s ease;min-width:2px}
 
+  /* ═══ lab badges (server up / down / setup) ═══ */
+  .lab-badge{
+    font-size:9px;padding:2px 6px;border-radius:8px;
+    font-weight:700;letter-spacing:0.3px;text-transform:uppercase;
+    margin-left:4px;display:inline-block;vertical-align:middle;
+  }
+  .lab-badge.down{background:var(--red);color:white;}
+  .lab-badge.setup{background:var(--yellow);color:#1a1a1a;}
+  .lab-badge.up{background:var(--green);color:white;opacity:0.7;}
+
   /* ═══ Main ═══ */
   .main{display:flex;flex-direction:column;overflow:hidden}
   .main-header{padding:20px 32px;border-bottom:1px solid var(--border);background:var(--panel-2);display:flex;align-items:center;justify-content:space-between;gap:16px}
@@ -144,9 +154,9 @@
 
   /* ═══ Welcome screen ═══ */
   .welcome{display:flex;align-items:center;justify-content:center;min-height:100%;padding:40px 20px}
-  .welcome-inner{max-width:720px;width:100%}
+  .welcome-inner{max-width:760px;width:100%}
 
-  .welcome-hero{text-align:center;margin-bottom:40px}
+  .welcome-hero{text-align:center;margin-bottom:36px}
   .welcome-hero .shield{
     font-size:64px;line-height:1;
     display:inline-block;
@@ -162,13 +172,13 @@
   }
   .welcome-hero .tagline{
     font-size:14px;color:var(--text-dim);
-    max-width:520px;margin:0 auto;
+    max-width:560px;margin:0 auto;
     line-height:1.6;
   }
 
   .welcome-stats{
     display:grid;grid-template-columns:repeat(4,1fr);gap:12px;
-    margin-bottom:32px;
+    margin-bottom:28px;
   }
   .stat-card{
     background:var(--panel);border:1px solid var(--border);
@@ -189,7 +199,7 @@
   .stat-card.failed .num{color:var(--red)}
   .stat-card.idle .num{color:var(--text-dim)}
 
-  .welcome-section{margin-bottom:28px}
+  .welcome-section{margin-bottom:24px}
   .welcome-section h3{
     font-size:10px;color:var(--text-dim);
     text-transform:uppercase;letter-spacing:1.2px;font-weight:600;
@@ -227,6 +237,24 @@
   }
   .welcome-config .k{color:var(--text-faint)}
   .welcome-config .v{color:var(--text)}
+
+  .box-warning{
+    padding:16px 18px;
+    background:rgba(210,153,34,0.08);
+    border:1px solid var(--yellow);
+    border-radius:8px;
+    font-size:13px;
+    line-height:1.7;
+    color:var(--text);
+  }
+  .box-warning p{margin-bottom:8px;}
+  .box-warning p:last-child{margin-bottom:0;}
+  .box-warning strong{color:var(--yellow);}
+  .box-warning code{
+    font-family:var(--mono);font-size:12px;
+    background:var(--panel-2);padding:2px 6px;border-radius:4px;
+    color:var(--accent);
+  }
 
   /* ═══ Toast ═══ */
   .toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;font-size:13px;font-weight:500;color:white;background:var(--green);opacity:0;transform:translateY(10px);transition:all 0.25s;pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:1000}
@@ -343,6 +371,10 @@
       </select>
     </div>
 
+    <label for="new-box">Box compose_dir (optional)</label>
+    <input id="new-box" placeholder="/home/you/vulhub/httpd/CVE-2021-41773" autocomplete="off">
+    <div class="hint">absolute path to docker-compose.yml folder</div>
+
     <label for="new-max">Max attempts</label>
     <input id="new-max" type="number" value="5" min="1" max="50">
 
@@ -402,13 +434,9 @@ function stateLabel(s) {
   return s.kind;
 }
 
-// ─── Attempt color gradient ───
 const ATTEMPT_STOPS = [
-  [0.00,[ 63,185, 80]],  // green
-  [0.50,[210,153, 34]],  // yellow
-  [0.75,[248, 81, 73]],  // red
-  [0.90,[139, 69, 19]],  // brown
-  [1.00,[163,113,247]],  // purple
+  [0.00,[ 63,185, 80]],[0.50,[210,153, 34]],[0.75,[248, 81, 73]],
+  [0.90,[139, 69, 19]],[1.00,[163,113,247]],
 ];
 function attemptColor(ratio) {
   ratio = Math.max(0, Math.min(1, ratio));
@@ -439,7 +467,7 @@ function attemptsUsed(status) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Welcome screen — وقتی هیچ labی انتخاب نشده
+// Welcome screen
 // ═══════════════════════════════════════════════════════════════
 function renderWelcome() {
   const el = $('main-content');
@@ -488,6 +516,33 @@ function renderWelcome() {
         </div>
 
         <div class="welcome-section">
+          <h3>⚠️ Box targets</h3>
+          <div class="box-warning">
+            <p>
+              Each lab declares its own target in
+              <code>labs/*.yaml</code> under the
+              <code>box.compose_dir</code> field.
+            </p>
+            <p>
+              <strong>SSRF labs (1–6):</strong> use the bundled
+              <code>boxes/ssrf</code> (already in this project).
+            </p>
+            <p>
+              <strong>CVE labs:</strong> point
+              <code>box.compose_dir</code> at your own vulhub clone.
+              Clone it with:
+              <code>git clone https://github.com/vulhub/vulhub ~/vulhub-master</code>
+            </p>
+            <p>
+              Before each run, Aegis checks whether the target is up.
+              If it's down and a box path is set, it starts the box
+              automatically. If it's still down, the fuzz is skipped —
+              nothing is added to the report.
+            </p>
+          </div>
+        </div>
+
+        <div class="welcome-section">
           <h3>Quick start</h3>
           <ul class="welcome-list">
             <li>
@@ -504,7 +559,7 @@ function renderWelcome() {
             </li>
             <li>
               <span class="ico">📄</span>
-              <span>Each run produces a report under the <code>Reports</code> tab.</span>
+              <span>Each successful run produces a report under the <code>Reports</code> tab.</span>
             </li>
             <li>
               <span class="ico">➕</span>
@@ -538,7 +593,6 @@ async function loadLabs() {
     if (currentIdx !== null && labs[currentIdx]) {
       updateHeaderStatus();
     } else if (currentIdx === null) {
-      // اگه تو welcome هستیم، آمارش رو زنده نگه دار
       if (document.querySelector('.welcome')) renderWelcome();
     }
   } catch (e) { console.error(e); }
@@ -557,11 +611,21 @@ function renderLabList() {
     const color = attemptColor(ratio);
     const hasRun = l.status && l.status.kind !== 'untouched';
     const fillStyle = hasRun ? `width:${(ratio*100).toFixed(1)}%;background:${color};` : 'width:0%';
+
+    let serverBadge = '';
+    if (l.server_up === true) {
+      serverBadge = `<span class="lab-badge up">🟢 up</span>`;
+    } else if (l.server_up === false) {
+      serverBadge = `<span class="lab-badge down">🔴 down</span>`;
+    } else if (l.setup_note) {
+      serverBadge = `<span class="lab-badge setup">🟡 setup</span>`;
+    }
+
     return `
       <div class="lab-item ${currentIdx === l.index ? 'active' : ''}" onclick="openLab(${l.index})">
         <div class="lab-dot ${cls}"></div>
         <div class="lab-info">
-          <div class="lab-name">${esc(l.name)}</div>
+          <div class="lab-name">${esc(l.name)}${serverBadge}</div>
           <div class="lab-meta">${esc(badge)}</div>
           <div class="lab-mini-bar"><div class="lab-mini-fill" style="${fillStyle}"></div></div>
         </div>
@@ -613,7 +677,6 @@ async function loadProvider() {
       $('model-apply').disabled = true;
       $('model-hint').textContent = 'live switching only for Ollama';
     }
-    // اگه welcome نشون داده می‌شه، config رو آپدیت کن
     if (document.querySelector('.welcome')) renderWelcome();
   } catch (e) {
     $('model-hint').textContent = 'failed to load provider';
@@ -681,6 +744,7 @@ function openNewLabModal() {
   $('new-url').value = 'http://localhost:5000/api/v1/fetch';
   $('new-body-key').value = 'url';
   $('new-method').value = 'POST';
+  $('new-box').value = '';
   $('new-max').value = '5';
   $('modal-error').textContent = '';
   onKindChange();
@@ -701,6 +765,7 @@ async function submitNewLab() {
     kind: kind,
     target_url: $('new-url').value.trim(),
     max_attempts: parseInt($('new-max').value) || 5,
+    box_dir: $('new-box').value.trim(),
   };
   if (kind === 'ssrf_json') body.body_key = $('new-body-key').value.trim() || 'url';
   if (kind === 'raw') body.method = $('new-method').value;
@@ -764,10 +829,7 @@ function goHome() {
 }
 
 async function renderMain() {
-  if (currentIdx === null) {
-    renderWelcome();
-    return;
-  }
+  if (currentIdx === null) { renderWelcome(); return; }
   const lab = labs[currentIdx];
   if (!lab) { renderWelcome(); return; }
   const cls = stateClass(lab.status);
@@ -829,7 +891,33 @@ async function renderTabBody() {
     else if (lab.status.kind === 'failed') note = '❌ Failed — budget exhausted.';
     else note = `⏳ In progress... attempt ${used} of ${maxA}.`;
 
+    let serverNoteHTML = '';
+    if (lab.server_up === false) {
+      serverNoteHTML = `
+        <div class="info-card" style="border-color:var(--red);background:rgba(248,81,73,0.05);margin-bottom:16px">
+          <h3 style="color:var(--red)">🔴 Server not reachable</h3>
+          <div class="info-row"><span class="v plain">Last preflight check failed. Fuzzing was skipped. Bring the target up manually, or verify the <code>box.compose_dir</code> path in this lab's YAML.</span></div>
+        </div>`;
+    } else if (lab.server_up === true) {
+      serverNoteHTML = `
+        <div class="info-card" style="border-color:var(--green);background:rgba(63,185,80,0.05);margin-bottom:16px">
+          <h3 style="color:var(--green)">🟢 Server reachable</h3>
+          <div class="info-row"><span class="v plain">The target responded to the last preflight check.</span></div>
+        </div>`;
+    }
+
+    let setupNoteHTML = '';
+    if (lab.setup_note) {
+      setupNoteHTML = `
+        <div class="info-card" style="border-color:var(--yellow);background:rgba(210,153,34,0.05);margin-bottom:16px">
+          <h3 style="color:var(--yellow)">⚠️ Manual setup required</h3>
+          <div class="info-row"><span class="v plain">${esc(lab.setup_note)}</span></div>
+        </div>`;
+    }
+
     el.innerHTML = `
+      ${serverNoteHTML}
+      ${setupNoteHTML}
       <div class="info-grid">
         <div class="info-card">
           <div class="attempt-head">
@@ -1019,9 +1107,6 @@ async function viewReport(execId) {
   await renderTabBody();
 }
 
-// ═══════════════════════════════════════════════════════════════
-// Syntax highlight (light)
-// ═══════════════════════════════════════════════════════════════
 function syntaxHighlight(obj) {
   const json = JSON.stringify(obj, null, 2);
   return esc(json)
@@ -1036,7 +1121,7 @@ function syntaxHighlight(obj) {
 // ═══════════════════════════════════════════════════════════════
 // Boot
 // ═══════════════════════════════════════════════════════════════
-renderWelcome();   // ← صفحه‌ی خوش‌آمد بلافاصله
+renderWelcome();
 loadLabs();
 loadProvider();
 setInterval(loadLabs, 3000);

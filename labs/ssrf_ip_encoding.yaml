@@ -1,9 +1,13 @@
 meta:
-  id: lab4_ip_encoding
-  name: "Lab 4 — /api/v3/strict (IP-encoding bypass)"
+  id: ssrf_ip_encoding
+  name: "ssrf — /api/v3/strict (IP-encoding bypass)"
   description: "Strict filter blocks hostname and dotted-quad IPv4. Requires ip_encoding field."
   order: 4
   tags: [ssrf, filter-bypass, ip-encoding]
+
+box:
+  compose_dir: "boxes/ssrf"
+  wait_secs: 3
 
 max_attempts: 6
 

@@ -4,6 +4,7 @@
 [server]
 host = "127.0.0.1"
 port = 7777
+auto_manage_box = true
 
 [paths]
 labs_dir       = "labs"
@@ -11,4 +12,3 @@ reports_dir    = "reports"
 static_dir     = "static"
 db_path        = "aegis.db"
 migrations_dir = "migrations"
-vulhub_root    = "~/vulhub-master"

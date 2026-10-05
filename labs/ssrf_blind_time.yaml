@@ -1,9 +1,13 @@
 meta:
-  id: lab5_blind_time
-  name: "Lab 5 — /api/v4/blind-time (blind SSRF, time-based)"
+  id: ssrf_blind_time
+  name: "ssrf — /api/v4/blind-time (blind SSRF, time-based)"
   description: "Response body is discarded. Success is signaled only by latency."
   order: 5
   tags: [ssrf, blind, time-based]
+
+box:
+  compose_dir: "boxes/ssrf"
+  wait_secs: 3
 
 max_attempts: 5
 

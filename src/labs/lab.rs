@@ -143,8 +143,20 @@ impl Lab {
             }
         }
     }
+    /// پایان اجرا **بدون** تغییر state. فقط run_lock رو آزاد می‌کنه.
+    /// برای وقتی که lab اصلاً اجرا نشد (مثلاً سرور down بود) — lab
+    /// باید `Untouched` بمونه، نه `Failed`.
+    pub fn finish_untouched(self_arc: &Arc<Lab>, run_lock: &RunLock) {
+        *self_arc.state.lock().unwrap() = LabState::Untouched;
 
-    pub fn reset(&self) {
+        let mut guard = run_lock.lock().unwrap();
+        if let Some(current) = guard.as_ref() {
+            if Arc::ptr_eq(current, self_arc) {
+                *guard = None;
+            }
+        }
+    }
+        pub fn reset(&self) {
         *self.state.lock().unwrap() = LabState::Untouched;
     }
 

@@ -1,10 +1,14 @@
 meta:
-  id: lab1_fetch
-  name: "Lab 1 — /api/v1/fetch (no filtering)"
+  id: ssrf_fetch
+  name: "ssrf — /api/v1/fetch (no filtering)"
   description: "Baseline SSRF: fetch endpoint with no input filtering."
   order: 1
   tags: [ssrf, basic]
 
+box:
+  compose_dir: "boxes/ssrf"
+  wait_secs: 3
+  
 max_attempts: 5
 
 target:

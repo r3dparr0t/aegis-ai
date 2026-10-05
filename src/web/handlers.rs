@@ -32,10 +32,13 @@ pub async fn index(State(app): State<AppCtx>) -> impl IntoResponse {
 
 pub async fn list_labs(State(app): State<AppCtx>) -> impl IntoResponse {
     let labs = app.labs.read().unwrap();
+    let ws = app.state.lock().unwrap();
     let out: Vec<_> = labs.iter().enumerate().map(|(i, lab)| {
+        let id = lab.id();
+        let spec = lab.spec();
         json!({
             "index": i,
-            "id": lab.id(),
+            "id": id,
             "name": lab.name(),
             "description": lab.description(),
             "url": lab.url(),
@@ -43,6 +46,8 @@ pub async fn list_labs(State(app): State<AppCtx>) -> impl IntoResponse {
             "max_attempts": lab.max_attempts(),
             "status": lab.state(),
             "running": lab.is_running(),
+            "server_up": ws.server_up.get(&id).copied(),
+            "setup_note": spec.dbox.as_ref().and_then(|b| b.setup_note.clone()),
         })
     }).collect();
     Json(json!(out))
