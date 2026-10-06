@@ -29,6 +29,93 @@ pub struct RawHttpExecutor {
 }
 
 impl RawHttpExecutor {
+    /// اجرای یه درخواست تکی. تمام منطق قبلیِ execute این‌جاست.
+    async fn execute_one(&self, payload: &Value) -> Result<ExecutionOutcome, ExecutorError> {
+        if self.scheme != "http" {
+            return Err(ExecutorError::Network(format!(
+                "RawHttpExecutor only supports http:// (No '{}://') — TLS Not wired on soket.",
+                self.scheme
+            )));
+        }
+
+        let path = payload
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ExecutorError::InvalidPayload("missing 'path' field".into()))?;
+        let path = if path.starts_with('/') {
+            path.to_string()
+        } else {
+            format!("/{}", path)
+        };
+
+        let method = payload
+            .get("method")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&self.default_method)
+            .to_uppercase();
+
+        let body: String = payload
+            .get("body")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let mut headers: Vec<(String, String)> = self.default_headers.clone();
+        if let Some(obj) = payload.get("headers").and_then(|v| v.as_object()) {
+            for (k, v) in obj {
+                if let Some(s) = v.as_str() {
+                    headers.push((k.clone(), s.to_string()));
+                }
+            }
+        }
+
+        let mut request = format!("{} {} HTTP/1.1\r\n", method, path);
+        let host_header = if self.port == 80 {
+            self.host.clone()
+        } else {
+            format!("{}:{}", self.host, self.port)
+        };
+        request.push_str(&format!("Host: {}\r\n", host_header));
+        request.push_str("Connection: close\r\n");
+        let has_content_length = headers
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("content-length"));
+        for (k, v) in &headers {
+            request.push_str(&format!("{}: {}\r\n", k, v));
+        }
+        if !body.is_empty() && !has_content_length {
+            request.push_str(&format!("Content-Length: {}\r\n", body.len()));
+        }
+        request.push_str("\r\n");
+        request.push_str(&body);
+
+        let start = Instant::now();
+        let addr = format!("{}:{}", self.host, self.port);
+        let mut stream = TcpStream::connect(&addr)
+            .await
+            .map_err(|e| ExecutorError::Network(format!("connect to {}: {}", addr, e)))?;
+
+        stream
+            .write_all(request.as_bytes())
+            .await
+            .map_err(|e| ExecutorError::Network(format!("write: {}", e)))?;
+
+        let mut raw_response = Vec::new();
+        stream
+            .read_to_end(&mut raw_response)
+            .await
+            .map_err(|e| ExecutorError::Network(format!("read: {}", e)))?;
+
+        let latency_ms = start.elapsed().as_millis() as u64;
+        let (status_code, resp_body) = parse_raw_http_response(&raw_response);
+
+        Ok(ExecutionOutcome {
+            status_code,
+            body: resp_body,
+            latency_ms,
+        })
+    }
+
     pub fn new(
         base_url: impl Into<String>,
         default_method: impl Into<String>,
@@ -57,97 +144,32 @@ impl RawHttpExecutor {
 #[async_trait]
 impl TargetExecutor for RawHttpExecutor {
     async fn execute(&self, payload: &Value) -> Result<ExecutionOutcome, ExecutorError> {
-        if self.scheme != "http" {
-            return Err(ExecutorError::Network(format!(
-                "RawHttpExecutor فعلاً فقط از http:// پشتیبانی می‌کنه (نه '{}://') — \
-                 TLS روی سوکت خام هنوز وایر نشده.",
-                self.scheme
-            )));
-        }
-
-        // ۱. path — عیناً همونی که مدل داده، بدون parse/normalize.
-        let path = payload
-            .get("path")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ExecutorError::InvalidPayload("missing 'path' field".into()))?;
-        let path = if path.starts_with('/') {
-            path.to_string()
-        } else {
-            format!("/{}", path)
-        };
-
-        // ۲. method
-        let method = payload
-            .get("method")
-            .and_then(|v| v.as_str())
-            .unwrap_or(&self.default_method)
-            .to_uppercase();
-
-        // ۳. body
-        let body: String = payload
-            .get("body")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        // ۴. headers — default + هرچی مدل اضافه کرده
-        let mut headers: Vec<(String, String)> = self.default_headers.clone();
-        if let Some(obj) = payload.get("headers").and_then(|v| v.as_object()) {
-            for (k, v) in obj {
-                if let Some(s) = v.as_str() {
-                    headers.push((k.clone(), s.to_string()));
+        // اگه payload یه آرایه‌ی `requests` داشت، همه رو به ترتیب اجرا کن و
+        // فقط *آخرین* response رو برگردون. این برای CVEهای چندمرحله‌ای
+        // (Spring4Shell: یه POST برای نوشتن shell، بعد یه GET برای اجراش).
+        if let Some(requests) = payload.get("requests").and_then(|v| v.as_array()) {
+            if requests.is_empty() {
+                return Err(ExecutorError::InvalidPayload(
+                    "'requests' array is empty".into(),
+                ));
+            }
+            let total = requests.len();
+            let mut last: Option<ExecutionOutcome> = None;
+            for (i, req) in requests.iter().enumerate() {
+                match self.execute_one(req).await {
+                    Ok(o) => last = Some(o),
+                    Err(e) => {
+                        return Err(ExecutorError::StepFailed {
+                            step: i + 1,
+                            total,
+                            inner: Box::new(e),
+                        });
+                    }
                 }
             }
+            return Ok(last.unwrap());
         }
-
-        // ۵. request-line خام — دقیقاً همین بایت‌ها فرستاده می‌شن.
-        let mut request = format!("{} {} HTTP/1.1\r\n", method, path);
-        // request.push_str(&format!("Host: {}\r\n", self.host));
-        let host_header = if self.port == 80 {
-            self.host.clone()
-        } else {
-            format!("{}:{}", self.host, self.port)
-        };
-        request.push_str(&format!("Host: {}\r\n", host_header));
-        request.push_str("Connection: close\r\n");
-        let has_content_length = headers
-            .iter()
-            .any(|(k, _)| k.eq_ignore_ascii_case("content-length"));
-        for (k, v) in &headers {
-            request.push_str(&format!("{}: {}\r\n", k, v));
-        }
-        if !body.is_empty() && !has_content_length {
-            request.push_str(&format!("Content-Length: {}\r\n", body.len()));
-        }
-        request.push_str("\r\n");
-        request.push_str(&body);
-
-        // ۶. ارسال روی TCP خام
-        let start = Instant::now();
-        let addr = format!("{}:{}", self.host, self.port);
-        let mut stream = TcpStream::connect(&addr)
-            .await
-            .map_err(|e| ExecutorError::Network(format!("connect to {}: {}", addr, e)))?;
-
-        stream
-            .write_all(request.as_bytes())
-            .await
-            .map_err(|e| ExecutorError::Network(format!("write: {}", e)))?;
-
-        let mut raw_response = Vec::new();
-        stream
-            .read_to_end(&mut raw_response)
-            .await
-            .map_err(|e| ExecutorError::Network(format!("read: {}", e)))?;
-
-        let latency_ms = start.elapsed().as_millis() as u64;
-        let (status_code, resp_body) = parse_raw_http_response(&raw_response);
-
-        Ok(ExecutionOutcome {
-            status_code,
-            body: resp_body,
-            latency_ms,
-        })
+        self.execute_one(payload).await
     }
 }
 

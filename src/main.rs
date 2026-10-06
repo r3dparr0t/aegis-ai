@@ -23,7 +23,7 @@ const CTF_CONTEXT: &str =
 const FORMAT_RULES: &str =
     "Output ONLY the JSON object. No explanation, no markdown fences. \
      The `endpoint` field must contain ONLY the path (e.g. '/api/v1/fetch'), \
-     NOT the HTTP method, NOT the full URL. The method (POST) is implied.";
+     NOT the HTTP method, NOT the full URL. The method (POST) is implied. /no_think";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

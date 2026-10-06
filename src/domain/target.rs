@@ -20,6 +20,13 @@ pub enum ExecutorError {
     UnknownEndpoint(String),
     /// خطای شبکه‌ای هنگام درخواست به هدف
     Network(String),
+    /// وقتی یه CVE چندمرحله‌ایه و یکی از مراحل میانی fail می‌شه.
+    /// `step` از ۱ شمرده می‌شه.
+    StepFailed {
+        step: usize,
+        total: usize,
+        inner: Box<ExecutorError>,
+    },
 }
 
 impl fmt::Display for ExecutorError {
@@ -28,6 +35,9 @@ impl fmt::Display for ExecutorError {
             ExecutorError::InvalidPayload(msg) => write!(f, "invalid_payload: {}", msg),
             ExecutorError::UnknownEndpoint(ep) => write!(f, "unknown_endpoint: {}", ep),
             ExecutorError::Network(msg) => write!(f, "network_error: {}", msg),
+            ExecutorError::StepFailed { step, total, inner } => {
+                write!(f, "step {}/{} failed: {}", step, total, inner)
+            }
         }
     }
 }
