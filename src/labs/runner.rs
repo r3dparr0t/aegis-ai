@@ -21,10 +21,12 @@ pub async fn run_lab(
     all_labs: &[Arc<Lab>],
     goal: Option<String>,
 ) {
-    if ctx.cancel.load(std::sync::atomic::Ordering::SeqCst) {
-        eprintln!("⚠️  Lab '{}' skipped: previous cancel is still set", lab.id());
-        return;
-    }
+    // توجه: اینجا عمداً چک نمی‌کنیم که ctx.cancel چی‌ئه. تنها جایی که این
+    // flag رو false می‌کنه خط اول run_locked()ه — اگه این‌جا هم روش چک
+    // می‌کردیم، بعد از اولین Stop، هیچ‌وقت نوبت به اون reset نمی‌رسید (چون
+    // هیچ‌وقت run_locked صدا زده نمی‌شد) و کل برنامه برای همیشه قفل می‌موند.
+    // try_start/RunLock به‌تنهایی کافیه که دو اجرا هم‌زمان نشن؛ cancel فقط
+    // باید اجرای *در حال انجام* رو متوقف کنه، نه جلوی اجراهای بعدی رو بگیره.
     if !Lab::try_start(lab, &ctx.run_lock) {
         eprintln!(
             "⚠️  Lab '{}' skipped — another lab is already running.",
@@ -96,9 +98,14 @@ pub async fn run_locked(
         (false, 0)
     };
 
-    // ── ۳. teardown این lab قبل از رفتن به بعدی ──
+       // ── ۳. teardown این lab قبل از رفتن به بعدی ──
     dbox::teardown(lab, ctx.auto_manage_box, &ctx.observer).await;
 
+    // بعد از teardown، سرور دیگه up نیست. به UI بگو تا بج رو از 🟢 به 🔴 ببره.
+    ctx.observer.on_event(Event::ServerDown {
+        lab_id: lab_id.clone(),
+        reason: "box was stopped after the run".to_string(),
+    });
     // ── ۴. state ──
     if should_fuzz {
         Lab::finish(lab, &ctx.run_lock, success, attempts);

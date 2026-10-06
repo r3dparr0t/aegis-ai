@@ -7,7 +7,7 @@ meta:
 
 box:
   compose_dir: "~/vulhub-master/grafana/CVE-2021-43798"
-  wait_secs: 5
+  teardown: down
 
 max_attempts: 5
 

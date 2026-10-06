@@ -131,8 +131,11 @@ pub async fn teardown(lab: &Arc<Lab>, auto_manage: bool, observer: &SharedObserv
         return;
     };
     let dir = expand_tilde(&b.compose_dir);
+    // teardown از YAML میاد: "stop" (پیش‌فرض) یا "down".
+    // هر مقدار دیگه‌ای هم به‌عنوان "stop" رفتار می‌کنه — safe fallback.
+    let compose_cmd = if b.teardown == "down" { "down" } else { "stop" };
     let _ = tokio::process::Command::new("docker")
-        .args(["compose", "down"])
+        .args(["compose", compose_cmd])
         .current_dir(&dir)
         .output()
         .await;

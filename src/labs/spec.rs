@@ -177,7 +177,13 @@ pub struct BoxSpec {
     /// نصب شه)، این متن تو UI نشون داده می‌شه.
     #[serde(default)]
     pub setup_note: Option<String>,
+     /// چطور بعد از اجرا با داکر رفتار کنیم:
+    /// - "down" (یا هرچی): کانتینر کامل حذف می‌شه (`docker compose down`)
+    /// - "stop": فقط متوقف می‌شه، state حفظ می‌مونه (`docker compose stop`)
+    #[serde(default = "default_teardown")]
+    pub teardown: String,
 }
 
+fn default_teardown() -> String { "stop".to_string() }
 fn default_wait_secs() -> u64 { 3 }
 fn default_health_path() -> String { "/".to_string() }
