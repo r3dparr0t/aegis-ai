@@ -8,7 +8,10 @@ use super::lab::Lab;
 use crate::events::{Event, SharedObserver};
 
 pub enum PreflightResult {
-    Up,
+    /// سرور از قبل بالا بود — Aegis مالکش نیست، نباید teardown بزنه.
+    AlreadyUp,
+    /// Aegis خودش box رو بالا آورد — پس باید بعداً teardown بزنه.
+    Started,
     Down(String),
 }
 
@@ -35,10 +38,9 @@ pub async fn preflight(
         .unwrap_or("/");
 
     // ── ۱. اول چک کن شاید سرور از قبل بالاست ──
-    if let PreflightResult::Up = health_check(&base_url, path, 3).await {
-        return PreflightResult::Up;
+    if health_check(&base_url, path, 3).await.is_ok() {
+        return PreflightResult::AlreadyUp;
     }
-
     // ── ۲. اگه box نداریم یا auto_manage خاموشه، فقط Down برگردون ──
     let Some(mc) = my_dbox else {
         return PreflightResult::Down("target server is not reachable (no box to start)".into());
@@ -99,15 +101,18 @@ pub async fn preflight(
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
-    // ── ۶. دوباره چک کن ──
-    health_check(&base_url, path, 3).await
+       // ── ۶. دوباره چک کن ──
+    match health_check(&base_url, path, 3).await {
+        Ok(()) => PreflightResult::Started,
+        Err(reason) => PreflightResult::Down(reason),
+    }
 }
 
-/// TCP connect ساده. کافیه پورت باز باشه — حتی اگه سرور ۴۰۴ بده.
-async fn health_check(base_url: &str, path: &str, timeout_secs: u64) -> PreflightResult {
+/// TCP connect ساده. Ok(()) = سرور بالاست، Err(reason) = پایین.
+async fn health_check(base_url: &str, path: &str, timeout_secs: u64) -> Result<(), String> {
     let full = format!("{}{}", base_url.trim_end_matches('/'), path);
     let Ok(parsed) = url::Url::parse(&full) else {
-        return PreflightResult::Down(format!("bad target.url: {}", base_url));
+        return Err(format!("bad target.url: {}", base_url));
     };
     let host = parsed.host_str().unwrap_or("127.0.0.1").to_string();
     let port = parsed.port_or_known_default().unwrap_or(80);
@@ -115,9 +120,9 @@ async fn health_check(base_url: &str, path: &str, timeout_secs: u64) -> Prefligh
 
     let connect = tokio::net::TcpStream::connect(&addr);
     match tokio::time::timeout(Duration::from_secs(timeout_secs), connect).await {
-        Ok(Ok(_)) => PreflightResult::Up,
-        Ok(Err(e)) => PreflightResult::Down(format!("tcp {}: {}", addr, e)),
-        Err(_) => PreflightResult::Down(format!("tcp {}: timeout", addr)),
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(e)) => Err(format!("tcp {}: {}", addr, e)),
+        Err(_) => Err(format!("tcp {}: timeout", addr)),
     }
 }
 

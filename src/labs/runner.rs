@@ -59,29 +59,27 @@ pub async fn run_locked(
 
     // اگه کاربر وسط preflight Stop زد
     if ctx.cancel.load(std::sync::atomic::Ordering::SeqCst) {
-        eprintln!("[STOP] cancelled during preflight");
-        dbox::teardown(lab, ctx.auto_manage_box, &ctx.observer).await;
+        eprintln!("[STOP] lab {} cancelled during preflight", lab.name());
+        if matches!(preflight, PreflightResult::Started) {
+            dbox::teardown(lab, ctx.auto_manage_box, &ctx.observer).await;
+        }
         Lab::finish_untouched(lab, &ctx.run_lock);
         return;
     }
 
-    let should_fuzz = match preflight {
-        PreflightResult::Up => {
-            ctx.observer.on_event(Event::ServerUp {
-                lab_id: lab_id.clone(),
-            });
-            true
+    let (should_fuzz, owns_box) = match preflight {
+        PreflightResult::AlreadyUp => {
+            ctx.observer.on_event(Event::ServerUp { lab_id: lab_id.clone() });
+            (true, false)   // ← مالک نیست
+        }
+        PreflightResult::Started => {
+            ctx.observer.on_event(Event::ServerUp { lab_id: lab_id.clone() });
+            (true, true)    // ← مالک‌ـه
         }
         PreflightResult::Down(reason) => {
-            ctx.observer.on_event(Event::ServerDown {
-                lab_id: lab_id.clone(),
-                reason: reason.clone(),
-            });
-            ctx.observer.on_event(Event::LabSkipped {
-                lab_id: lab_id.clone(),
-                reason,
-            });
-            false
+            ctx.observer.on_event(Event::ServerDown { lab_id: lab_id.clone(), reason: reason.clone() });
+            ctx.observer.on_event(Event::LabSkipped { lab_id: lab_id.clone(), reason });
+            (false, false)
         }
     };
 
@@ -98,9 +96,14 @@ pub async fn run_locked(
         (false, 0)
     };
 
-       // ── ۳. teardown این lab قبل از رفتن به بعدی ──
-    dbox::teardown(lab, ctx.auto_manage_box, &ctx.observer).await;
-
+    // ── ۳. teardown فقط اگه خودمون بالا آورده بودیم ──
+    if owns_box {
+        dbox::teardown(lab, ctx.auto_manage_box, &ctx.observer).await;
+        ctx.observer.on_event(Event::ServerDown {
+            lab_id: lab_id.clone(),
+            reason: "box was stopped after the run".to_string(),
+        });
+    }
     // بعد از teardown، سرور دیگه up نیست. به UI بگو تا بج رو از 🟢 به 🔴 ببره.
     ctx.observer.on_event(Event::ServerDown {
         lab_id: lab_id.clone(),
