@@ -104,11 +104,7 @@ pub async fn run_locked(
             reason: "box was stopped after the run".to_string(),
         });
     }
-    // بعد از teardown، سرور دیگه up نیست. به UI بگو تا بج رو از 🟢 به 🔴 ببره.
-    ctx.observer.on_event(Event::ServerDown {
-        lab_id: lab_id.clone(),
-        reason: "box was stopped after the run".to_string(),
-    });
+    
     // ── ۴. state ──
     if should_fuzz {
         Lab::finish(lab, &ctx.run_lock, success, attempts);
