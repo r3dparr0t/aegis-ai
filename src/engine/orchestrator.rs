@@ -349,15 +349,28 @@ impl ExecutionEngine {
             let payload: serde_json::Value = match serde_json::from_str(&cleaned) {
                 Ok(v) => v,
                 Err(err) => {
-                    self.emit_error(
-                        "parse",
-                        format!(
-                            "JSON parse failed: {}. Extracted (first 200): {}",
-                            err,
-                            cleaned.chars().take(200).collect::<String>()
-                        ),
-                        false,
-                    );
+                    // تلاش برای repair
+                    if let Some(repaired) = crate::executor::json::repair_json(&cleaned) {
+                        match serde_json::from_str(&repaired) {
+                            Ok(v) => {
+                                self.emit_error("parse", 
+                                    format!("JSON repaired (single-quote → double-quote)"), false);
+                                v
+                            }
+                            Err(_) => {
+                                self.emit_error(
+                                    "parse",
+                                    format!(
+                                        "JSON parse failed: {}. Extracted (first 200): {}",
+                                        err,
+                                        cleaned.chars().take(200).collect::<String>()
+                                    ),
+                                    false,
+                                );
+                            }
+                        }
+                    }
+                    
                     let eval_result = EvaluationResult {
                         is_valid: false,
                         error: Some(EvaluationError::InvalidJson),
