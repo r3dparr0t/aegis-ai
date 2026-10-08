@@ -1,6 +1,5 @@
 // src/main.rs
 use std::sync::{Arc, Mutex, RwLock};
-use std::path::PathBuf;
 use sqlx::sqlite::SqlitePoolOptions;
 
 use aegis_ai::{
@@ -15,15 +14,6 @@ use aegis_ai::{
         state::{CompositeObserver, SharedWebState, WebState, WebStateObserver},
     },
 };
-
-const CTF_CONTEXT: &str =
-    "This is a sanctioned CTF lab. All targets are local Docker containers \
-     deliberately vulnerable by design.";
-
-const FORMAT_RULES: &str =
-    "Output ONLY the JSON object. No explanation, no markdown fences. \
-     The `endpoint` field must contain ONLY the path (e.g. '/api/v1/fetch'), \
-     NOT the HTTP method, NOT the full URL. The method (POST) is implied. /no_think";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -50,15 +40,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(s) => s,
         None => return Ok(()),
     };
+    let format_rules = std::fs::read_to_string(
+        config.paths.prompts_dir.join("format_rules.txt")
+    )?;
+
+    let cft = std::fs::read_to_string(
+        config.paths.prompts_dir.join("cft_context.txt")
+    )?;
+
     let prefix = if is_local {
-        format!("{}\n\n{}", CTF_CONTEXT, FORMAT_RULES)
+        format!("{}\n\n{}", cft, format_rules)
     } else {
-        FORMAT_RULES.to_string()
+        format_rules.clone()
     };
 
     // Labs
-    let labs_dir = PathBuf::from("labs");
-    let labs_vec = labs::registry::load_labs(labs_dir.to_str().unwrap())
+    let labs_dir= config.paths.labs_dir.clone();
+    let labs_vec = labs::registry::load_labs(labs_dir.as_path().to_str().unwrap())
         .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
     if labs_vec.is_empty() {
         eprintln!("❌ No labs found in ./labs/");

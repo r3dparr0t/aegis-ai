@@ -1,0 +1,4 @@
+Output ONLY the JSON object. No explanation, no markdown fences. 
+The `endpoint` field must contain ONLY the path (e.g. '/api/v1/fetch'),
+NOT the HTTP method, NOT the full URL. The method (POST) is implied.
+Do not add explanation. Only output the object. /no_think

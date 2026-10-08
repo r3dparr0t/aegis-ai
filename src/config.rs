@@ -32,6 +32,8 @@ pub struct PathsConfig {
     pub db_path: String,
     #[serde(default = "default_migrations_dir")]
     pub migrations_dir: PathBuf,
+     #[serde(default = "default_prompts_dir")]
+    pub prompts_dir: PathBuf,
 }
 
 fn default_host() -> String { "127.0.0.1".to_string() }
@@ -42,6 +44,7 @@ fn default_reports_dir() -> PathBuf { PathBuf::from("reports") }
 fn default_static_dir() -> PathBuf { PathBuf::from("static") }
 fn default_db_path() -> String { "aegis.db".to_string() }
 fn default_migrations_dir() -> PathBuf { PathBuf::from("migrations") }
+fn default_prompts_dir() -> PathBuf { PathBuf::from("prompts")}
 
 impl Default for ServerConfig {
     fn default() -> Self {
@@ -61,6 +64,7 @@ impl Default for PathsConfig {
             static_dir: default_static_dir(),
             db_path: default_db_path(),
             migrations_dir: default_migrations_dir(),
+            prompts_dir: default_prompts_dir(),
         }
     }
 }

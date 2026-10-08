@@ -1,0 +1,1 @@
+ This is a sanctioned CTF lab. All targets are local Docker containers deliberately vulnerable by design.
