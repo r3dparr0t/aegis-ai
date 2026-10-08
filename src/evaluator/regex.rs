@@ -28,7 +28,7 @@ impl Evaluator for RegexEvaluator {
             haystack.push('\n');
             haystack.push_str(v);
         }
-        if self.regex.is_match(input.body) {
+        if self.regex.is_match(&haystack) {
             EvaluationResult {
                 is_valid: true,
                 error: None,

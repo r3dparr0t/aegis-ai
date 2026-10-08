@@ -19,6 +19,9 @@ pub enum PreflightResult {
 /// ۱. boxهای دیگه‌ای که *خودمون* قبلاً بالا آوردیم رو down می‌کنیم.
 /// ۲. اگه سرور بالاست → AlreadyUp (مالک نمی‌شیم).
 /// ۳. اگه dbox داره و auto_manage روشنه → فقط dbox *خودش* رو up می‌کنه.
+///    ⚠️ اگه `docker compose up` شکست بخوره → `Down` برمی‌گردونیم (نه
+///    `Started`)، حتی اگه یه چیزی روی پورت جواب بده. این جلوی fuzz کردن
+///    هدف اشتباه (کانتینرِ چپ‌مانده از ران قبلی) رو می‌گیره.
 ///
 /// ⚠️ به هیچ box دیگه‌ای که کاربر دستی بالا آورده دست نمی‌زنه.
 pub async fn preflight(
@@ -40,11 +43,14 @@ pub async fn preflight(
             let my_dir = expand_tilde(&mc.compose_dir);
             let others: Vec<PathBuf> = {
                 let mut set = started_boxes.lock().unwrap();
-                let others: Vec<PathBuf> = set.iter()
+                let others: Vec<PathBuf> = set
+                    .iter()
                     .filter(|p| **p != my_dir)
                     .cloned()
                     .collect();
-                for p in &others { set.remove(p); }
+                for p in &others {
+                    set.remove(p);
+                }
                 others
             };
             for other_dir in others {
@@ -94,7 +100,7 @@ pub async fn preflight(
     }
 
     let my_dir = expand_tilde(&mc.compose_dir);
-    match tokio::process::Command::new("docker")
+    let up_ok = match tokio::process::Command::new("docker")
         .args(["compose", "up", "-d"])
         .current_dir(&my_dir)
         .output()
@@ -105,6 +111,7 @@ pub async fn preflight(
                 compose_dir: my_dir.display().to_string(),
             });
             started_boxes.lock().unwrap().insert(my_dir.clone());
+            true
         }
         Ok(o) => {
             let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
@@ -113,6 +120,7 @@ pub async fn preflight(
                 message: format!("docker compose up failed in {}: {}", my_dir.display(), err),
                 fatal: false,
             });
+            false
         }
         Err(e) => {
             observer.on_event(Event::Error {
@@ -120,7 +128,20 @@ pub async fn preflight(
                 message: format!("could not run docker compose: {}", e),
                 fatal: false,
             });
+            false
         }
+    };
+
+    // ★ اگه `up` شکست خورد، مهم نیست پورت بازه یا نه — ما مالکِ اون چیزی
+    // که روی پورت جواب می‌ده نیستیم. پس Down برمی‌گردونیم تا این لب skip
+    // بشه، نه اینکه هدف اشتباه رو fuzz کنیم.
+    if !up_ok {
+        return PreflightResult::Down(format!(
+            "docker compose up failed in '{}' — port is likely occupied by another \
+             container. Try `docker ps --filter publish=8080` and clean it up. \
+             Skipping to avoid fuzzing an unknown target.",
+            my_dir.display()
+        ));
     }
 
     let wait = mc.wait_secs.max(1);

@@ -759,10 +759,31 @@ async function applyModel() {
 }
 
 async function runAll() {
-  const r = await fetch('/api/run-all', { method: 'POST' });
-  if (r.ok) { toast('Running all labs'); startPolling(); }
-  else if (r.status === 409) toast('A lab is already running', true);
-  else toast('Failed to start', true);
+  // فقط لب‌هایی که الان تو UI دیده می‌شن (بعد از فیلتر search و sort)
+  const visible = visibleLabs();
+  if (!visible.length) {
+    toast('No labs to run', true);
+    return;
+  }
+  const indices = visible.map(l => l.index);
+
+  try {
+    const r = await fetch('/api/run-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ indices }),
+    });
+    if (r.ok) {
+      toast(`Running ${indices.length} lab(s)`);
+      startPolling();
+    } else if (r.status === 409) {
+      toast('A lab is already running', true);
+    } else {
+      toast('Failed to start', true);
+    }
+  } catch (e) {
+    toast('Network error', true);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════

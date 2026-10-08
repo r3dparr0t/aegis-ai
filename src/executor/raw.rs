@@ -195,7 +195,7 @@ fn parse_raw_http_response(raw: &[u8]) -> (u16, Vec<(String, String)>, String) {
         None => return (status_code, Vec::new(), String::new()),
     };
     let head = &text[..split];
-    let body = text[split + 4..].to_string();
+    let raw_body = &text[split + 4..];
 
     let mut headers = Vec::new();
     for line in head.lines().skip(1) {
@@ -203,6 +203,15 @@ fn parse_raw_http_response(raw: &[u8]) -> (u16, Vec<(String, String)>, String) {
             headers.push((k.trim().to_string(), v.trim().to_string()));
         }
     }
+
+    let is_chunked = headers.iter().any(|(k, v)| {
+        k.eq_ignore_ascii_case("transfer-encoding") && v.to_ascii_lowercase().contains("chunked")
+    });
+    let body = if is_chunked {
+        decode_chunked(raw_body).unwrap_or_else(|| raw_body.to_string())
+    } else {
+        raw_body.to_string()
+    };
 
     (status_code, headers, body)
 }

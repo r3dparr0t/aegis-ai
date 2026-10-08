@@ -424,20 +424,50 @@ pub async fn run_lab(
     (StatusCode::OK, "started").into_response()
 }
 
-pub async fn run_all(State(app): State<AppCtx>) -> impl IntoResponse {
+#[derive(Deserialize, Default)]
+pub struct RunAllRequest {
+    /// اگه `None` باشه، همه‌ی لب‌ها اجرا می‌شن (رفتار قدیمی).
+    /// اگه `Some(indices)` باشه، فقط اون ایندکس‌ها اجرا می‌شن — به ترتیب.
+    #[serde(default)]
+    pub indices: Option<Vec<usize>>,
+}
+
+pub async fn run_all(
+    State(app): State<AppCtx>,
+    payload: Option<Json<RunAllRequest>>,
+) -> impl IntoResponse {
     if app.ctx.run_lock.lock().unwrap().is_some() {
         return (StatusCode::CONFLICT, "a lab is already running").into_response();
     }
 
     let labs_snapshot: Vec<Arc<Lab>> = app.labs.read().unwrap().clone();
+
+    let selected: Vec<Arc<Lab>> = match payload.and_then(|p| p.0.indices) {
+        Some(indices) => {
+            if indices.is_empty() {
+                return (StatusCode::BAD_REQUEST, "no labs selected").into_response();
+            }
+            indices
+                .into_iter()
+                .filter_map(|i| labs_snapshot.get(i).cloned())
+                .collect()
+        }
+        None => labs_snapshot.clone(),
+    };
+
+    if selected.is_empty() {
+        return (StatusCode::BAD_REQUEST, "no labs selected").into_response();
+    }
+
     let ctx = app.ctx.clone();
+    let all_for_runner = labs_snapshot.clone();
 
     tokio::spawn(async move {
-        for lab in labs_snapshot.iter() {
-             if ctx.cancel.load(std::sync::atomic::Ordering::SeqCst) {
+        for lab in selected.iter() {
+            if ctx.cancel.load(std::sync::atomic::Ordering::SeqCst) {
                 break;
             }
-            runner::run_lab(&ctx, lab, &labs_snapshot, None).await;
+            runner::run_lab(&ctx, lab, &all_for_runner, None).await;
         }
     });
 
