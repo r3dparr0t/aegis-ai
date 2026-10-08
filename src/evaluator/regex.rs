@@ -22,6 +22,12 @@ impl RegexEvaluator {
 
 impl Evaluator for RegexEvaluator {
     fn evaluate(&self, input: EvaluationInput<'_>) -> EvaluationResult {
+       // اول body، بعد headers
+        let mut haystack = input.body.to_string();
+        for (_, v) in &input.headers {
+            haystack.push('\n');
+            haystack.push_str(v);
+        }
         if self.regex.is_match(input.body) {
             EvaluationResult {
                 is_valid: true,

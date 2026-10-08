@@ -1,6 +1,9 @@
 // src/labs/mod.rs
-use std::fs;
-use std::sync::{Arc, RwLock};
+use std::{
+    fs,
+    sync::{Arc, RwLock},
+    collections::HashSet,
+};
 
 use crate::{
     domain::{ExecutionReport, LlmProvider},
@@ -30,6 +33,10 @@ pub struct LabContext {
     pub reports_dir: std::path::PathBuf,
     pub auto_manage_box: bool,
     pub cancel: Arc<std::sync::atomic::AtomicBool>,
+    /// مسیر boxهایی که خود Aegis بالا آورده و هنوز down نکرده.
+    /// این رو نگه می‌داریم تا بتونیم بین «کاربر دستی بالا آورده» و
+    /// «ما بالا آوردیم» فرق بذاریم.
+    pub started_boxes: Arc<std::sync::Mutex<HashSet<std::path::PathBuf>>>,
 }
 
 /// اجرای یه Lab و برگرداندن (success, attempts).

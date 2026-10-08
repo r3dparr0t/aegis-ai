@@ -8,6 +8,7 @@ use serde_json::Value;
 pub struct ExecutionOutcome {
     pub status_code: u16,
     pub body: String,
+    pub headers: Vec<(String, String)>,
     pub latency_ms: u64,
 }
 

@@ -91,6 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         reports_dir: config.paths.reports_dir.clone(),
         auto_manage_box: config.server.auto_manage_box,
         cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        started_boxes: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
     });
 
     let app_ctx = web::AppCtx {

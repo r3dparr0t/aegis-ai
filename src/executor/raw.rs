@@ -107,10 +107,11 @@ impl RawHttpExecutor {
             .map_err(|e| ExecutorError::Network(format!("read: {}", e)))?;
 
         let latency_ms = start.elapsed().as_millis() as u64;
-        let (status_code, resp_body) = parse_raw_http_response(&raw_response);
+        let (status_code, headers, resp_body) = parse_raw_http_response(&raw_response);
 
         Ok(ExecutionOutcome {
             status_code,
+            headers,
             body: resp_body,
             latency_ms,
         })
@@ -181,7 +182,7 @@ impl TargetExecutor for RawHttpExecutor {
 /// معمولاً مشکلی نیست، ولی اگه یه لب دیگه با پاسخ chunked بزرگ داشتی و
 /// evaluator regex دیگه match نکرد، احتمالاً باید یه decoder chunked هم
 /// اضافه کنیم.)
-fn parse_raw_http_response(raw: &[u8]) -> (u16, String) {
+fn parse_raw_http_response(raw: &[u8]) -> (u16, Vec<(String, String)>, String) {
     let text = String::from_utf8_lossy(raw);
     let status_code = text
         .split_whitespace()
@@ -189,26 +190,21 @@ fn parse_raw_http_response(raw: &[u8]) -> (u16, String) {
         .and_then(|s| s.parse::<u16>().ok())
         .unwrap_or(0);
 
-    let body_start = match text.find("\r\n\r\n") {
-        Some(idx) => idx + 4,
-        None => return (status_code, String::new()),
+    let split = match text.find("\r\n\r\n") {
+        Some(i) => i,
+        None => return (status_code, Vec::new(), String::new()),
     };
-    let raw_body = &text[body_start..];
+    let head = &text[..split];
+    let body = text[split + 4..].to_string();
 
-    // چک کن Transfer-Encoding: chunked داریم؟
-    let headers = &text[..body_start];
-    let is_chunked = headers.lines().any(|l| {
-        let l = l.to_ascii_lowercase();
-        l.starts_with("transfer-encoding:") && l.contains("chunked")
-    });
+    let mut headers = Vec::new();
+    for line in head.lines().skip(1) {
+        if let Some((k, v)) = line.split_once(':') {
+            headers.push((k.trim().to_string(), v.trim().to_string()));
+        }
+    }
 
-    let body = if is_chunked {
-        decode_chunked(raw_body).unwrap_or_else(|| raw_body.to_string())
-    } else {
-        raw_body.to_string()
-    };
-
-    (status_code, body)
+    (status_code, headers, body)
 }
 
 fn decode_chunked(input: &str) -> Option<String> {

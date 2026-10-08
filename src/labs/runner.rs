@@ -53,6 +53,7 @@ pub async fn run_locked(
         all_labs,
         ctx.auto_manage_box,
         &ctx.cancel,
+        &ctx.started_boxes,
         &ctx.observer,
     )
     .await;

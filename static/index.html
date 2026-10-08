@@ -53,6 +53,81 @@
   .labs-header .lbl{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.9px;font-weight:600}
   .labs-header .actions{display:flex;gap:6px}
   .labs-header button{padding:4px 10px;font-size:11px;border-radius:5px}
+
+  /* ═══ Search + Sort bar ═══ */
+  .search-sort-bar{
+    padding:8px 22px;
+    background:var(--panel-2);
+    border-bottom:1px solid var(--border);
+    display:flex;
+    gap:6px;
+    align-items:center;
+  }
+  .search-box{
+    flex:1;
+    position:relative;
+  }
+  .search-box input{
+    width:100%;
+    background:var(--panel);
+    color:var(--text);
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding:6px 10px 6px 28px;
+    font-size:12px;
+    font-family:inherit;
+  }
+  .search-box input:focus{
+    outline:none;
+    border-color:var(--accent);
+    box-shadow:0 0 0 3px rgba(78,161,255,0.1);
+  }
+  .search-box input::placeholder{color:var(--text-faint)}
+  .search-box .ico{
+    position:absolute;
+    left:8px;
+    top:50%;
+    transform:translateY(-50%);
+    font-size:11px;
+    color:var(--text-faint);
+    pointer-events:none;
+  }
+  .search-box .clear{
+    position:absolute;
+    right:6px;
+    top:50%;
+    transform:translateY(-50%);
+    background:transparent;
+    border:none;
+    color:var(--text-faint);
+    cursor:pointer;
+    padding:2px 4px;
+    font-size:14px;
+    line-height:1;
+    display:none;
+  }
+  .search-box.has-text .clear{display:block}
+  .search-box .clear:hover{color:var(--text)}
+
+  .sort-btns{display:flex;gap:2px;flex-shrink:0}
+  .sort-btns button{
+    background:transparent;
+    border:1px solid transparent;
+    color:var(--text-faint);
+    cursor:pointer;
+    padding:5px 7px;
+    border-radius:5px;
+    font-size:13px;
+    line-height:1;
+    transition:all 0.1s;
+  }
+  .sort-btns button:hover{color:var(--text);background:var(--panel)}
+  .sort-btns button.active{
+    background:var(--panel);
+    color:var(--accent);
+    border-color:var(--border-2);
+  }
+
   .labs{flex:1;overflow-y:auto;padding:6px 0}
   .lab-item{padding:11px 22px;cursor:pointer;border-left:3px solid transparent;transition:background 0.1s;display:flex;gap:12px;align-items:flex-start}
   .lab-item:hover{background:var(--panel)}
@@ -77,8 +152,10 @@
   .lab-badge.setup{background:var(--yellow);color:#1a1a1a;}
   .lab-badge.up{background:var(--green);color:white;opacity:0.7;}
 
+  .no-results{padding:24px 20px;text-align:center;color:var(--text-faint);font-size:12px;font-style:italic;}
+
   .main{display:flex;flex-direction:column;overflow:hidden}
-    #main-content{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+  #main-content{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
   .main-header{padding:20px 32px;border-bottom:1px solid var(--border);background:var(--panel-2);display:flex;align-items:center;justify-content:space-between;gap:16px}
   .main-title h2{font-size:17px;font-weight:600;margin-bottom:3px}
   .main-title .sub{font-size:12px;color:var(--text-dim);font-family:var(--mono);word-break:break-all}
@@ -140,6 +217,7 @@
   .report-item:hover{border-color:var(--accent);background:var(--panel-2)}
   .report-item .id{font-family:var(--mono);font-size:12px;color:var(--accent)}
   .report-item .time{font-size:11px;color:var(--text-dim);font-family:var(--mono)}
+  .report-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:12px}
   .report-detail{background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:16px;font-family:var(--mono);font-size:12px;line-height:1.65;white-space:pre-wrap;word-break:break-word;max-height:70vh;overflow-y:auto;color:var(--text)}
   .report-detail .key{color:var(--accent)}
   .report-detail .str{color:#a5d6ff}
@@ -234,6 +312,39 @@
           <button onclick="runAll()" title="Run all labs sequentially">▶ Run all</button>
         </div>
       </div>
+
+      <div class="search-sort-bar">
+        <div class="search-box" id="search-box">
+          <span class="ico">🔍</span>
+          <input
+            id="search-input"
+            type="text"
+            placeholder="Filter labs…"
+            autocomplete="off"
+            oninput="onSearchInput()"
+          >
+          <button class="clear" onclick="clearSearch()" title="Clear">✕</button>
+        </div>
+        <div class="sort-btns">
+          <button
+            id="sort-order"
+            class="active"
+            title="Default order (as declared in YAML)"
+            onclick="setSort('order')"
+          >⇅</button>
+          <button
+            id="sort-name"
+            title="Sort by name (A→Z)"
+            onclick="setSort('name')"
+          >A→Z</button>
+          <button
+            id="sort-status"
+            title="Sort by status (running, failed, passed, untouched)"
+            onclick="setSort('status')"
+          >●</button>
+        </div>
+      </div>
+
       <div class="labs" id="lab-list"></div>
     </div>
   </aside>
@@ -276,6 +387,8 @@
       <select id="new-method">
         <option>POST</option>
         <option>GET</option>
+        <option>PATCH</option>
+        <option>PUT</option>
       </select>
     </div>
 
@@ -302,9 +415,14 @@ let labs = [];
 let currentIdx = null;
 let currentTab = 'overview';
 let currentReport = null;
+let currentReportRaw = null;
 let pollingTimer = null;
 let providerInfo = null;
 let selectedModel = null;
+
+// search + sort state
+let searchQuery = '';
+let sortMode = 'order';   // 'order' | 'name' | 'status'
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
@@ -372,6 +490,61 @@ function attemptsUsed(status) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Search + Sort
+// ═══════════════════════════════════════════════════════════════
+function onSearchInput() {
+  const v = $('search-input').value;
+  searchQuery = v.trim().toLowerCase();
+  $('search-box').classList.toggle('has-text', v.length > 0);
+  renderLabList();
+}
+
+function clearSearch() {
+  $('search-input').value = '';
+  searchQuery = '';
+  $('search-box').classList.remove('has-text');
+  renderLabList();
+}
+
+function setSort(mode) {
+  sortMode = mode;
+  ['order','name','status'].forEach(m => {
+    $('sort-' + m).classList.toggle('active', m === mode);
+  });
+  renderLabList();
+}
+
+/// labs رو با فیلتر search و sort mode برمی‌گردونه.
+/// یه کپی می‌سازه تا به آرایه‌ی اصلی دست نزنه.
+function visibleLabs() {
+  let list = labs.slice();
+
+  if (searchQuery) {
+    list = list.filter(l =>
+      (l.id || '').toLowerCase().includes(searchQuery) ||
+      (l.name || '').toLowerCase().includes(searchQuery) ||
+      (l.description || '').toLowerCase().includes(searchQuery)
+    );
+  }
+
+  if (sortMode === 'name') {
+    list.sort((a,b) => (a.name || '').localeCompare(b.name || ''));
+  } else if (sortMode === 'status') {
+    const rank = s => {
+      const k = s?.kind || 'untouched';
+      if (k === 'running') return 0;
+      if (k === 'failed')  return 1;
+      if (k === 'passed')  return 2;
+      return 3; // untouched
+    };
+    list.sort((a,b) => rank(a.status) - rank(b.status));
+  }
+  // 'order' → همون ترتیبی که از سرور اومد (already sorted by meta.order)
+
+  return list;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Welcome
 // ═══════════════════════════════════════════════════════════════
 function renderWelcome() {
@@ -420,12 +593,12 @@ function renderWelcome() {
         <div class="welcome-section">
           <h3>Quick start</h3>
           <ul class="welcome-list">
-            <li><span class="ico">📋</span><span>Pick a lab from the sidebar to see its details.</span></li>
-            <li><span class="ico">▶</span><span>Run it with <code>▶ Run</code> — or all of them with <code>▶ Run all</code>.</span></li>
+            <li><span class="ico">🔍</span><span>Filter labs with the search box; sort with the icon buttons.</span></li>
+            <li><span class="ico">▶</span><span>Run one with <code>▶ Run</code> — or all with <code>▶ Run all</code>.</span></li>
             <li><span class="ico">■</span><span>While running, hit <code>■ Stop</code> to cancel cleanly.</span></li>
             <li><span class="ico">📝</span><span>Edit a lab's <code>YAML</code> and save; changes apply immediately.</span></li>
             <li><span class="ico">📄</span><span>Each successful run produces a report under the <code>Reports</code> tab.</span></li>
-            <li><span class="ico">➕</span><span>Add a new lab with <code>+ New</code> — SSRF or raw HTTP (for CVEs).</span></li>
+            <li><span class="ico">📋</span><span>Copy a report's raw JSON with the <code>Copy</code> button.</span></li>
           </ul>
         </div>
 
@@ -460,11 +633,18 @@ async function loadLabs() {
 
 function renderLabList() {
   const el = $('lab-list');
+  const list = visibleLabs();
+
   if (!labs.length) {
     el.innerHTML = '<div class="empty" style="padding:20px"><div class="msg">No labs loaded</div></div>';
     return;
   }
-  el.innerHTML = labs.map(l => {
+  if (!list.length) {
+    el.innerHTML = `<div class="no-results">No labs match "${esc(searchQuery)}"</div>`;
+    return;
+  }
+
+  el.innerHTML = list.map(l => {
     const cls = stateClass(l.status);
     const badge = stateLabel(l.status);
     const ratio = attemptRatio(l.status, l.max_attempts);
@@ -509,8 +689,6 @@ function updateHeaderStatus() {
     runBtn.disabled = running;
     runBtn.innerHTML = running ? '⏳ Running...' : '▶ Run';
   }
-
-  // ═══ Stop button: فقط وقتی در حال اجراست ═══
   const stopBtn = $('stop-btn');
   if (stopBtn) {
     stopBtn.style.display = running ? 'inline-flex' : 'none';
@@ -684,6 +862,7 @@ async function openLab(idx) {
   currentIdx = idx;
   currentTab = 'overview';
   currentReport = null;
+  currentReportRaw = null;
   renderLabList();
   await renderMain();
 }
@@ -691,6 +870,7 @@ async function openLab(idx) {
 function goHome() {
   currentIdx = null;
   currentReport = null;
+  currentReportRaw = null;
   renderLabList();
   renderWelcome();
 }
@@ -732,6 +912,7 @@ async function renderMain() {
 function switchTab(name) {
   currentTab = name;
   currentReport = null;
+  currentReportRaw = null;
   document.querySelectorAll('.tab').forEach((t,i) => {
     t.classList.toggle('active', ['overview','yaml','reports'][i] === name);
   });
@@ -861,12 +1042,15 @@ async function renderTabBody() {
     el.innerHTML = '<div class="empty"><div class="msg">Loading...</div></div>';
     try {
       const r = await fetch(`/api/report/${currentReport}`);
-      const data = await r.json();
+      currentReportRaw = await r.text();
+      let data;
+      try { data = JSON.parse(currentReportRaw); } catch(e) { data = currentReportRaw; }
       el.innerHTML = `
-        <div style="margin-bottom:12px">
+        <div class="report-toolbar">
           <button onclick="switchTab('reports')">← Back</button>
+          <button class="primary" onclick="copyReport()" id="copy-btn">📋 Copy JSON</button>
         </div>
-        <div class="report-detail">${syntaxHighlight(data)}</div>`;
+        <div class="report-detail">${typeof data === 'object' ? syntaxHighlight(data) : esc(currentReportRaw)}</div>`;
     } catch (e) {
       el.innerHTML = '<div class="empty"><div class="msg">Failed to load</div></div>';
     }
@@ -882,7 +1066,6 @@ async function runCurrent() {
     if (r.ok) {
       toast('Started');
       startPolling();
-      // فوراً stop button رو نشون بده
       const stopBtn = $('stop-btn');
       if (stopBtn) stopBtn.style.display = 'inline-flex';
     }
@@ -909,7 +1092,6 @@ async function stopCurrent() {
     const r = await fetch('/api/stop', { method: 'POST' });
     if (r.ok) {
       toast('Stopping...');
-      // تا ۱۵ ثانیه قفل بمونه، بعد آزاد شه (اگه lab سریع stop نشد، کاربر دوباره بزنه)
       setTimeout(() => {
         stopDebounce = false;
         const b = $('stop-btn');
@@ -1006,6 +1188,34 @@ async function viewReport(execId) {
   currentTab = 'report-detail';
   document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', i === 2));
   await renderTabBody();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Copy report JSON
+// ═══════════════════════════════════════════════════════════════
+async function copyReport() {
+  if (!currentReportRaw) return;
+  const btn = $('copy-btn');
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(currentReportRaw);
+    } else {
+      // fallback برای http://localhost (که secure context نیست ولی clipboard API ممکنه کار نکنه)
+      const ta = document.createElement('textarea');
+      ta.value = currentReportRaw;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    if (btn) { btn.innerHTML = '✓ Copied'; }
+    toast('Report copied to clipboard');
+    setTimeout(() => { if (btn) btn.innerHTML = '📋 Copy JSON'; }, 2000);
+  } catch (e) {
+    toast('Copy failed', true);
+  }
 }
 
 function syntaxHighlight(obj) {

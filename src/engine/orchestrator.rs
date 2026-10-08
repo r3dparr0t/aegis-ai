@@ -478,6 +478,7 @@ impl ExecutionEngine {
 
             let eval_result = self.evaluator.evaluate(EvaluationInput {
                 body: &outcome.body,
+                headers: outcome.headers,
                 status_code: outcome.status_code,
                 latency_ms: outcome.latency_ms,
             });

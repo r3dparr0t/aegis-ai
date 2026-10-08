@@ -72,6 +72,7 @@ impl TargetExecutor for HttpTargetExecutor {
         Ok(ExecutionOutcome {
             status_code,
             body: response_body,
+            headers: Vec::new(),
             latency_ms,
         })
     }

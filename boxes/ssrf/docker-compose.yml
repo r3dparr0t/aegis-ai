@@ -1,6 +1,8 @@
 services:
   vulnerable-api:
-    build: ./vulnerable_app
+    build:
+      context: ./vulnerable_app
+      network: host
     container_name: lab_vulnerable_api
     ports:
       - "5000:5000"
@@ -8,7 +10,9 @@ services:
       lab_network:
 
   internal-admin:
-    build: ./internal_admin
+    build:
+      context: ./internal_admin   # مسیر فعلی خودت
+      network: host
     container_name: lab_internal_admin
     expose:
       - "8080"

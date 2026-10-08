@@ -16,32 +16,71 @@ pub enum PreflightResult {
 }
 
 /// قبل از اجرای این lab:
-/// ۱. اگه سرورش بالاست → همون‌جا تموم.
-/// ۲. اگه dbox داره و auto_manage روشنه → فقط dbox *خودش* رو up می‌کنه.
-/// ۳. صبر، بعد دوباره health check.
+/// ۱. boxهای دیگه‌ای که *خودمون* قبلاً بالا آوردیم رو down می‌کنیم.
+/// ۲. اگه سرور بالاست → AlreadyUp (مالک نمی‌شیم).
+/// ۳. اگه dbox داره و auto_manage روشنه → فقط dbox *خودش* رو up می‌کنه.
 ///
-/// ⚠️ به هیچ box دیگه‌ای دست نمی‌زنه. اگه پورت با lab دیگه‌ای conflict بشه،
-/// `docker compose up -d` fail می‌شه و error تو log میاد — کاربر خودش
-/// تصمیم می‌گیره که اون یکی رو down کنه یا نه.
+/// ⚠️ به هیچ box دیگه‌ای که کاربر دستی بالا آورده دست نمی‌زنه.
 pub async fn preflight(
     lab: &Arc<Lab>,
-    _all_labs: &[Arc<Lab>],   // ignored — عمداً. هیچ lab دیگه‌ای رو نمی‌بینیم.
+    _all_labs: &[Arc<Lab>],
     auto_manage: bool,
     cancel: &Arc<std::sync::atomic::AtomicBool>,
+    started_boxes: &Arc<std::sync::Mutex<std::collections::HashSet<PathBuf>>>,
     observer: &SharedObserver,
 ) -> PreflightResult {
     let spec = lab.spec();
     let my_dbox = spec.dbox.as_ref();
     let base_url = spec.target.base_url().to_string();
-    let path = my_dbox
-        .map(|b| b.health_check_path.as_str())
-        .unwrap_or("/");
+    let path = my_dbox.map(|b| b.health_check_path.as_str()).unwrap_or("/");
 
-    // ── ۱. اول چک کن شاید سرور از قبل بالاست ──
+    // ── ۰. boxهای دیگه‌ای که خودمون بالا آوردیم رو down کن ──
+    if auto_manage {
+        if let Some(mc) = my_dbox {
+            let my_dir = expand_tilde(&mc.compose_dir);
+            let others: Vec<PathBuf> = {
+                let mut set = started_boxes.lock().unwrap();
+                let others: Vec<PathBuf> = set.iter()
+                    .filter(|p| **p != my_dir)
+                    .cloned()
+                    .collect();
+                for p in &others { set.remove(p); }
+                others
+            };
+            for other_dir in others {
+                let _ = tokio::process::Command::new("docker")
+                    .args(["compose", "down"])
+                    .current_dir(&other_dir)
+                    .output()
+                    .await;
+                observer.on_event(Event::BoxDown {
+                    compose_dir: other_dir.display().to_string(),
+                });
+            }
+        }
+    }
+
+    // ── ۱. اگه سرور همون boxی که ما خودمون بالا آوردیم بالاست، تموم ──
+    if auto_manage {
+        if let Some(mc) = my_dbox {
+            let my_dir = expand_tilde(&mc.compose_dir);
+            let is_ours = started_boxes.lock().unwrap().contains(&my_dir);
+            if is_ours {
+                if health_check(&base_url, path, 3).await.is_ok() {
+                    return PreflightResult::AlreadyUp;
+                }
+                // box ما بود ولی سرورش down شده — از صفر شروع می‌کنیم
+                started_boxes.lock().unwrap().remove(&my_dir);
+            }
+        }
+    }
+
+    // ── ۲. شاید کاربر دستی بالا آورده (یا box یه lab دیگه‌ست) ──
     if health_check(&base_url, path, 3).await.is_ok() {
         return PreflightResult::AlreadyUp;
     }
-    // ── ۲. اگه box نداریم یا auto_manage خاموشه، فقط Down برگردون ──
+
+    // ── ۳. واقعاً down ـه، box داریم و auto_manage روشنه → up کن ──
     let Some(mc) = my_dbox else {
         return PreflightResult::Down("target server is not reachable (no box to start)".into());
     };
@@ -50,13 +89,10 @@ pub async fn preflight(
             "target server is not reachable (auto_manage_box = false)".into(),
         );
     }
-
-    // ── ۳. cancel check قبل از هر کار سنگین ──
     if cancel.load(Ordering::SeqCst) {
         return PreflightResult::Down("cancelled before box start".into());
     }
 
-    // ── ۴. فقط box خودمون رو up کن ──
     let my_dir = expand_tilde(&mc.compose_dir);
     match tokio::process::Command::new("docker")
         .args(["compose", "up", "-d"])
@@ -68,19 +104,15 @@ pub async fn preflight(
             observer.on_event(Event::BoxUp {
                 compose_dir: my_dir.display().to_string(),
             });
+            started_boxes.lock().unwrap().insert(my_dir.clone());
         }
         Ok(o) => {
             let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
             observer.on_event(Event::Error {
                 context: "box",
-                message: format!(
-                    "docker compose up failed in {}: {}",
-                    my_dir.display(),
-                    err
-                ),
+                message: format!("docker compose up failed in {}: {}", my_dir.display(), err),
                 fatal: false,
             });
-            // همچنان به health check می‌ریم — شاید سرور از قبل نیمه‌بالا بوده
         }
         Err(e) => {
             observer.on_event(Event::Error {
@@ -91,7 +123,6 @@ pub async fn preflight(
         }
     }
 
-    // ── ۵. صبر کن، ولی هر ۱۰۰ms cancel رو چک کن ──
     let wait = mc.wait_secs.max(1);
     let steps = (wait * 10).max(1);
     for _ in 0..steps {
@@ -101,14 +132,14 @@ pub async fn preflight(
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
-       // ── ۶. دوباره چک کن ──
+    // ── ۴. دوباره چک کن ──
     match health_check(&base_url, path, 3).await {
         Ok(()) => PreflightResult::Started,
-        Err(reason) => PreflightResult::Down(reason),
+        Err(e) => PreflightResult::Down(e),
     }
 }
 
-/// TCP connect ساده. Ok(()) = سرور بالاست، Err(reason) = پایین.
+/// TCP connect ساده.
 async fn health_check(base_url: &str, path: &str, timeout_secs: u64) -> Result<(), String> {
     let full = format!("{}{}", base_url.trim_end_matches('/'), path);
     let Ok(parsed) = url::Url::parse(&full) else {
@@ -136,8 +167,6 @@ pub async fn teardown(lab: &Arc<Lab>, auto_manage: bool, observer: &SharedObserv
         return;
     };
     let dir = expand_tilde(&b.compose_dir);
-    // teardown از YAML میاد: "stop" (پیش‌فرض) یا "down".
-    // هر مقدار دیگه‌ای هم به‌عنوان "stop" رفتار می‌کنه — safe fallback.
     let compose_cmd = if b.teardown == "down" { "down" } else { "stop" };
     let _ = tokio::process::Command::new("docker")
         .args(["compose", compose_cmd])
@@ -149,7 +178,6 @@ pub async fn teardown(lab: &Arc<Lab>, auto_manage: bool, observer: &SharedObserv
     });
 }
 
-/// `~/foo` و `~` رو با $HOME جایگزین می‌کنه.
 fn expand_tilde(path: &str) -> PathBuf {
     if path == "~" {
         if let Ok(home) = std::env::var("HOME") {

@@ -37,6 +37,7 @@ pub struct EvaluationResult {
 /// (لازم برای Evaluatorهایی مثل TimeDelayEvaluator که body خالیه و فقط latency مهمه)
 pub struct EvaluationInput<'a> {
     pub body: &'a str,
+    pub headers: Vec<(String, String)>,
     pub status_code: u16,
     pub latency_ms: u64,
 }
