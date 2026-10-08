@@ -189,13 +189,10 @@ impl TargetExecutor for RawHttpExecutor {
             });
             return self.execute_chain(&chained).await;
         }
-        // ▼▼▼ این دوتا بلاک جا افتاده بودن ▼▼▼
-
         // اگه مدل خودش `requests` array داد، همون رو زنجیره‌ای اجرا کن
         if payload.get("requests").and_then(|v| v.as_array()).is_some() {
             return self.execute_chain(payload).await;
         }
-
         // درخواست تکی (رفتار پیش‌فرض)
         self.execute_one(payload).await
     }
