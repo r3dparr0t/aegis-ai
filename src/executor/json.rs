@@ -52,3 +52,24 @@ pub fn strip_code_fences(output: &str) -> String {
         trimmed.to_string()
     }
 }
+
+pub fn repair_json(text: &str) -> Option<String> {
+    // اگه strict کار کرد، دست نزن
+    if serde_json::from_str::<serde_json::Value>(text).is_ok() {
+        return Some(text.to_string());
+    }
+
+    // فقط ساده‌ترین حالت: top-level field با value تک‌کوتیشنی
+    // "body": '...'   →   "body": "..."
+    // الگوی امن: فقط top-level keys که value رو با ' شروع کرده و با ' تموم می‌کنه
+    let re = regex::Regex::new(r#":\s*'([^']*)'"#).ok()?;
+    let result = re.replace_all(text, |caps: &regex::Captures| {
+        let inner = &caps[1];
+        // escape double quotes and backslashes داخل value
+        let escaped = inner
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"");
+        format!(": \"{}\"", escaped)
+    });
+    Some(result.to_string())
+}

