@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use sqlx::sqlite::SqlitePoolOptions;
 
 use aegis_ai::{
+    prompt::PromptPrefix,
     config::Config,
     events::{ConsoleObserver, SharedObserver},
     input::prompt,
@@ -40,19 +41,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(s) => s,
         None => return Ok(()),
     };
-    let format_rules = std::fs::read_to_string(
-        config.paths.prompts_dir.join("format_rules.txt")
-    )?;
 
-    let cft = std::fs::read_to_string(
-        config.paths.prompts_dir.join("cft_context.txt")
-    )?;
-
-    let prefix = if is_local {
-        format!("{}\n\n{}", cft, format_rules)
-    } else {
-        format_rules.clone()
-    };
+    // prompt provider
+    let prompt_prefix = PromptPrefix::load(&config, is_local)?;
 
     // Labs
     let labs_dir= config.paths.labs_dir.clone();
@@ -83,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ctx = Arc::new(LabContext {
         provider: RwLock::new(provider),
         memory_repo,
-        prefix,
+        prefix: prompt_prefix.as_str().to_string(),
         observer: composite,
         run_lock: run_lock.clone(),
         reports_dir: config.paths.reports_dir.clone(),
