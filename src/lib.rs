@@ -12,3 +12,4 @@ pub mod labs;
 pub mod events;
 pub mod web;
 pub mod config;
+pub mod prompt;
