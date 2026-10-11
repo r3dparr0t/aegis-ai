@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::domain::{
     AttemptReport, EvaluationError, EvaluationResult, ExecutionReport, Lesson, LessonCandidate,
-    LessonUsage, LlmRequest, LlmResponse, MemoryQuery,
+    LessonUsage, LessonUsageReport, LlmRequest, LlmResponse, MemoryQuery,
 };
 
 #[derive(Clone)]
@@ -133,13 +133,22 @@ impl SqliteMemoryRepository {
         .await?;
 
         // کلیدواژه‌های ساده از query_text برای امتیازدهی شباهت (Keyword Indexing سبک)
-        let query_words: Vec<String> = query
+        let mut query_words: Vec<String> = query
             .query_text
             .to_lowercase()
             .split_whitespace()
             .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_string())
             .filter(|w| w.len() > 2)
             .collect();
+
+        // task_type رو هم به‌عنوان سیگنال اضافه کن. معمولاً اسم CVE/لب
+        // (مثل "cve_2022_22947_spring_cloud_gateway") تو خود متن lesson
+        // تکرار نمی‌شه، ولی توی query_text هم غایبه. بدون این، امتیازها
+        // همه به ۱.۰ همگرا می‌شن و ترتیب تصادفی می‌شه.
+        let tt = query.task_type.to_lowercase();
+        if !tt.is_empty() && !query_words.contains(&tt) {
+            query_words.push(tt);
+        }
 
         let mut candidates: Vec<LessonCandidate> = rows
             .into_iter()
@@ -274,6 +283,30 @@ impl SqliteMemoryRepository {
             });
         }
 
+        // درس‌هایی که در طول این Execution از حافظه استفاده شده‌اند، همراه با
+        // شماره‌ی attemptی که بهش تزریق شده و نتیجه‌ی همون attempt.
+        let lesson_rows = sqlx::query(
+            r#"
+            SELECT lu.lesson_id, a.attempt_number, lu.resulted_in_success
+            FROM lesson_usage lu
+            JOIN attempts a ON a.id = lu.attempt_id
+            WHERE lu.execution_id = ?
+            ORDER BY a.attempt_number ASC
+            "#,
+        )
+        .bind(execution_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let lessons_used = lesson_rows
+            .into_iter()
+            .map(|row| LessonUsageReport {
+                lesson_id: row.get("lesson_id"),
+                attempt_number: row.get("attempt_number"),
+                resulted_in_success: row.get("resulted_in_success"),
+            })
+            .collect();
+
         Ok(ExecutionReport {
             execution_id: execution_id.to_string(),
             task_type,
@@ -283,6 +316,7 @@ impl SqliteMemoryRepository {
             success,
             hint_used,
             fallback_used,
+            lessons_used,
         })
     }
 }

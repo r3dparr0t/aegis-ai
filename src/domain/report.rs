@@ -12,6 +12,14 @@ pub struct AttemptReport {
     pub latency_ms: i64,
 }
 
+/// یک درس که در یکی از attemptهای این Execution از حافظه بازیابی و استفاده شده.
+#[derive(Debug, Serialize)]
+pub struct LessonUsageReport {
+    pub lesson_id: String,
+    pub attempt_number: i64,
+    pub resulted_in_success: bool,
+}
+
 /// گزارش کامل یک Execution: هدف، همه‌ی تلاش‌ها، و نتیجه‌ی نهایی.
 /// این ساختار مستقیماً از جدول‌های executions/attempts/evaluations در SQLite بازسازی می‌شود.
 #[derive(Debug, Serialize)]
@@ -29,4 +37,9 @@ pub struct ExecutionReport {
     /// true اگه provider این اجرا حین کار، طبق `fallback_strategy` به یه
     /// مدل دیگه سوییچ کرده باشه (مثلاً مدل کوچیک‌تر → بزرگ‌تر).
     pub fallback_used: bool,
+    /// همه‌ی درس‌هایی که در طول این Execution از حافظه بازیابی و به یکی از
+    /// attemptها تزریق شده‌اند، به همراه اینکه اون attempt خاص پاس شد یا نه.
+    /// برای ردیابی اینکه عوض‌شدن نتیجه‌ی یک باکس بین دو اجرا، ناشی از تغییر
+    /// لب بوده یا ناشی از درسی بوده که مدل بین این دو اجرا یاد گرفته.
+    pub lessons_used: Vec<LessonUsageReport>,
 }

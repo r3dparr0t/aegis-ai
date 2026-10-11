@@ -106,7 +106,6 @@ async fn write_report(
     // lab_id شروع بشن. قبلاً این‌جا از slugify(label) استفاده می‌شد که
     // هیچ‌وقت با lab_id یکی نمی‌شد (مثلاً "Lab 1 — ..." → "lab_1_api_v1_..."
     // در مقابل "lab1_fetch")، پس تب گزارش‌ها همیشه خالی برمی‌گشت.
-    // let base_path = format!("reports/{}_{}", lab_id, execution_id);
 	let base_path = reports_dir.join(format!("{}_{}", lab_id, execution_id));
     match serde_json::to_string_pretty(&report) {
         Ok(json) => {
@@ -142,6 +141,7 @@ fn render_markdown_report(report: &ExecutionReport, label: &str) -> String {
         md.push_str("- **⚠️ Model fallback used:** yes — not solved by the original model alone\n");
     }
     md.push('\n');
+
     md.push_str("## Attempts\n\n");
     for attempt in &report.attempts {
         let verdict = if attempt.is_valid { "✅ PASSED" } else { "❌ FAILED" };
@@ -157,5 +157,38 @@ fn render_markdown_report(report: &ExecutionReport, label: &str) -> String {
         md.push_str(&attempt.output);
         md.push_str("\n```\n\n");
     }
+
+    // ── Lessons Used ──
+    // درس‌هایی که از حافظه بازیابی و به attemptهای این اجرا تزریق شدند.
+    // این بخش برای تفکیک «یادگیری مؤثر» از «تکرار کورکورانه‌ی خطا» حیاتیه:
+    // اگه یه lesson به چند attempt تزریق شده ولی هیچ‌کدوم پاس نشده،
+    // یعنی اون lesson اصلاً کمک‌کننده نبوده و باید بازنویسی بشه.
+    if !report.lessons_used.is_empty() {
+        let total = report.lessons_used.len();
+        let passed = report
+            .lessons_used
+            .iter()
+            .filter(|lu| lu.resulted_in_success)
+            .count();
+        let failed = total - passed;
+
+        md.push_str("## Lessons Used\n\n");
+        md.push_str(&format!(
+            "Total: {} lesson-usage record(s) — {} passed, {} failed.\n\n",
+            total, passed, failed
+        ));
+        md.push_str("| Lesson ID | Attempt | Result |\n");
+        md.push_str("|-----------|---------|--------|\n");
+        for lu in &report.lessons_used {
+            let id_short = &lu.lesson_id[..8.min(lu.lesson_id.len())];
+            let result = if lu.resulted_in_success { "✅" } else { "❌" };
+            md.push_str(&format!(
+                "| `{}` | {} | {} |\n",
+                id_short, lu.attempt_number, result
+            ));
+        }
+        md.push('\n');
+    }
+
     md
 }
