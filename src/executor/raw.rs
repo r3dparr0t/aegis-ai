@@ -64,6 +64,10 @@ impl RawHttpExecutor {
         if let Some(obj) = payload.get("headers").and_then(|v| v.as_object()) {
             for (k, v) in obj {
                 if let Some(s) = v.as_str() {
+                    // اگه هدر با همین نام (case-insensitive) از قبل هست (چه از
+                    // default، چه از payload قبلی)، حذفش کن. Tomcat هدر تکراری
+                    // Content-Type رو با 400 و بدنه‌ی خالی رد می‌کنه.
+                    headers.retain(|(hk, _)| !hk.eq_ignore_ascii_case(k));
                     headers.push((k.clone(), s.to_string()));
                 }
             }
