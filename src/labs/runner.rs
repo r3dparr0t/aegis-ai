@@ -62,7 +62,7 @@ pub async fn run_locked(
     if ctx.cancel.load(std::sync::atomic::Ordering::SeqCst) {
         eprintln!("[STOP] lab {} cancelled during preflight", lab.name());
         if matches!(preflight, PreflightResult::Started) {
-            dbox::teardown(lab, ctx.auto_manage_box, &ctx.observer).await;
+            dbox::teardown(lab, ctx.auto_manage_box, &ctx.observer, &ctx.started_boxes).await;
         }
         Lab::finish_untouched(lab, &ctx.run_lock);
         return;
@@ -99,7 +99,7 @@ pub async fn run_locked(
 
     // ── ۳. teardown فقط اگه خودمون بالا آورده بودیم ──
     if owns_box {
-        dbox::teardown(lab, ctx.auto_manage_box, &ctx.observer).await;
+        dbox::teardown(lab, ctx.auto_manage_box, &ctx.observer, &ctx.started_boxes).await;
         ctx.observer.on_event(Event::ServerDown {
             lab_id: lab_id.clone(),
             reason: "box was stopped after the run".to_string(),

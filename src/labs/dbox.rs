@@ -24,6 +24,8 @@ pub enum PreflightResult {
 ///    هدف اشتباه (کانتینرِ چپ‌مانده از ران قبلی) رو می‌گیره.
 ///
 /// ⚠️ به هیچ box دیگه‌ای که کاربر دستی بالا آورده دست نمی‌زنه.
+/// توی حالت auto، قبل از هر لب مطمئن می‌شیم که هیچ container قدیمی
+/// روی پورت هدف نمونده. اگه چیزی موند که ما شروعش نکردیم، fail با پیام واضح.
 pub async fn preflight(
     lab: &Arc<Lab>,
     _all_labs: &[Arc<Lab>],
@@ -37,68 +39,61 @@ pub async fn preflight(
     let base_url = spec.target.base_url().to_string();
     let path = my_dbox.map(|b| b.health_check_path.as_str()).unwrap_or("/");
 
-    // ── ۰. boxهای دیگه‌ای که خودمون بالا آوردیم رو down کن ──
-    if auto_manage {
-        if let Some(mc) = my_dbox {
-            let my_dir = expand_tilde(&mc.compose_dir);
-            let others: Vec<PathBuf> = {
-                let mut set = started_boxes.lock().unwrap();
-                let others: Vec<PathBuf> = set
-                    .iter()
-                    .filter(|p| **p != my_dir)
-                    .cloned()
-                    .collect();
-                for p in &others {
-                    set.remove(p);
-                }
-                others
-            };
-            for other_dir in others {
-                let _ = tokio::process::Command::new("docker")
-                    .args(["compose", "down"])
-                    .current_dir(&other_dir)
-                    .output()
-                    .await;
-                observer.on_event(Event::BoxDown {
-                    compose_dir: other_dir.display().to_string(),
-                });
-            }
-        }
+    // ── Manual mode: کاربر خودش مدیریت می‌کنه. فقط health check. ──
+    if !auto_manage {
+        return match health_check(&base_url, path, 3).await {
+            Ok(()) => PreflightResult::AlreadyUp,
+            Err(e) => PreflightResult::Down(e),
+        };
     }
 
-    // ── ۱. اگه سرور همون boxی که ما خودمون بالا آوردیم بالاست، تموم ──
-    if auto_manage {
-        if let Some(mc) = my_dbox {
-            let my_dir = expand_tilde(&mc.compose_dir);
-            let is_ours = started_boxes.lock().unwrap().contains(&my_dir);
-            if is_ours {
-                if health_check(&base_url, path, 3).await.is_ok() {
-                    return PreflightResult::AlreadyUp;
-                }
-                // box ما بود ولی سرورش down شده — از صفر شروع می‌کنیم
-                started_boxes.lock().unwrap().remove(&my_dir);
-            }
-        }
+    // ══ Auto mode: fresh start، هر بار ══
+
+    if cancel.load(Ordering::SeqCst) {
+        return PreflightResult::Down("cancelled before preflight".into());
     }
 
-    // ── ۲. شاید کاربر دستی بالا آورده (یا box یه lab دیگه‌ست) ──
-    if health_check(&base_url, path, 3).await.is_ok() {
-        return PreflightResult::AlreadyUp;
+    // ── ۱. همه‌ی boxهایی که ما شروع کردیم رو down کن (شامل این lab) ──
+    // قبلاً my_dir رو filter می‌کردیم، که یعنی اگه همین lab از ران قبلی
+    // نیمه‌کاره مونده بود، دست‌نخورده می‌موند. الان همه پاک می‌شن.
+    let to_down: Vec<PathBuf> = {
+        let mut set = started_boxes.lock().unwrap();
+        let all: Vec<PathBuf> = set.iter().cloned().collect();
+        set.clear();
+        all
+    };
+    for dir in &to_down {
+        let _ = tokio::process::Command::new("docker")
+            .args(["compose", "down"])
+            .current_dir(dir)
+            .output()
+            .await;
+        observer.on_event(Event::BoxDown {
+            compose_dir: dir.display().to_string(),
+        });
     }
 
-    // ── ۳. واقعاً down ـه، box داریم و auto_manage روشنه → up کن ──
+    // ── ۲. صبر کن پورت واقعاً آزاد بشه (docker down فوری release نمی‌کنه) ──
+    if !to_down.is_empty() {
+        wait_for_port_free(&base_url, 10).await;
+    }
+
+    // ── ۳. اگه هنوز پورت بنده، یه container ناشناس اونجاست ──
+    if health_check(&base_url, path, 1).await.is_ok() {
+        return PreflightResult::Down(format!(
+            "port {} is occupied by a container Aegis did NOT start. \
+             Run `docker ps` and `docker kill <id>` manually. \
+             This usually means a leftover from a previous manual run.",
+            base_url
+        ));
+    }
+
+    // ── ۴. این lab حتماً dbox داره ──
     let Some(mc) = my_dbox else {
         return PreflightResult::Down("target server is not reachable (no box to start)".into());
     };
-    if !auto_manage {
-        return PreflightResult::Down(
-            "target server is not reachable (auto_manage_box = false)".into(),
-        );
-    }
-    if cancel.load(Ordering::SeqCst) {
-        return PreflightResult::Down("cancelled before box start".into());
-    }
 
+    // ── ۵. up کن ──
     let my_dir = expand_tilde(&mc.compose_dir);
     let up_ok = match tokio::process::Command::new("docker")
         .args(["compose", "up", "-d"])
@@ -132,18 +127,14 @@ pub async fn preflight(
         }
     };
 
-    // ★ اگه `up` شکست خورد، مهم نیست پورت بازه یا نه — ما مالکِ اون چیزی
-    // که روی پورت جواب می‌ده نیستیم. پس Down برمی‌گردونیم تا این لب skip
-    // بشه، نه اینکه هدف اشتباه رو fuzz کنیم.
     if !up_ok {
         return PreflightResult::Down(format!(
-            "docker compose up failed in '{}' — port is likely occupied by another \
-             container. Try `docker ps --filter publish=8080` and clean it up. \
-             Skipping to avoid fuzzing an unknown target.",
+            "docker compose up failed in '{}'",
             my_dir.display()
         ));
     }
 
+    // ── ۶. انتظار برای up شدن سرویس ──
     let wait = mc.wait_secs.max(1);
     let steps = (wait * 10).max(1);
     for _ in 0..steps {
@@ -153,11 +144,29 @@ pub async fn preflight(
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
-    // ── ۴. دوباره چک کن ──
     match health_check(&base_url, path, 3).await {
         Ok(()) => PreflightResult::Started,
         Err(e) => PreflightResult::Down(e),
     }
+}
+
+/// منتظر آزاد شدن پورت بمون (تا timeout). true اگه آزاد شد.
+async fn wait_for_port_free(base_url: &str, timeout_secs: u64) -> bool {
+    let Ok(parsed) = url::Url::parse(base_url) else {
+        return true;
+    };
+    let host = parsed.host_str().unwrap_or("127.0.0.1").to_string();
+    let port = parsed.port_or_known_default().unwrap_or(80);
+    let addr = format!("{}:{}", host, port);
+
+    let steps = (timeout_secs * 10).max(1);
+    for _ in 0..steps {
+        match tokio::net::TcpStream::connect(&addr).await {
+            Ok(_) => tokio::time::sleep(Duration::from_millis(100)).await,
+            Err(_) => return true,
+        }
+    }
+    false
 }
 
 /// TCP connect ساده.
@@ -179,7 +188,12 @@ async fn health_check(base_url: &str, path: &str, timeout_secs: u64) -> Result<(
 }
 
 /// بعد از اتمام اجرا، dbox این lab رو down کن. idempotent.
-pub async fn teardown(lab: &Arc<Lab>, auto_manage: bool, observer: &SharedObserver) {
+pub async fn teardown(
+    lab: &Arc<Lab>,
+    auto_manage: bool,
+    observer: &SharedObserver,
+    started_boxes: &Arc<std::sync::Mutex<std::collections::HashSet<PathBuf>>>,
+) {
     if !auto_manage {
         return;
     }
@@ -194,6 +208,10 @@ pub async fn teardown(lab: &Arc<Lab>, auto_manage: bool, observer: &SharedObserv
         .current_dir(&dir)
         .output()
         .await;
+
+    // ★ حذف از set تا preflight بعدی دوباره down نزنه
+    started_boxes.lock().unwrap().remove(&dir);
+
     observer.on_event(Event::BoxDown {
         compose_dir: dir.display().to_string(),
     });
