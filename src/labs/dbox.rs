@@ -47,21 +47,58 @@ pub async fn preflight(
         };
     }
 
-    // ══ Auto mode: fresh start، هر بار ══
+    // ══ Auto mode ══
 
     if cancel.load(Ordering::SeqCst) {
         return PreflightResult::Down("cancelled before preflight".into());
     }
 
-    // ── ۱. همه‌ی boxهایی که ما شروع کردیم رو down کن (شامل این lab) ──
-    // قبلاً my_dir رو filter می‌کردیم، که یعنی اگه همین lab از ران قبلی
-    // نیمه‌کاره مونده بود، دست‌نخورده می‌موند. الان همه پاک می‌شن.
+    // ── ۰. اگه این lab ذاتاً persistent ـه (teardown: stop) و پورت جواب
+    //      می‌ده، از همون استفاده کن. این قبل از down-loop اجرا می‌شه تا
+    //      کانتینری که کاربر دستی (یا از ران قبلی) بالا آورده، کشته نشه.
+    //
+    //      چرا teardown="stop" سیگنال درستیه؟
+    //      stop یعنی «بعد از ران هم کانتینر رو نابود نکن». پس این lab
+    //      یه وضعیت داره که باید بمونه (مثلاً Drupal نصب‌شده). اگه پورت
+    //      اشغاله، یعنی همون وضعیت موجوده — reuse کن.
+    let is_persistent = my_dbox
+        .map(|b| b.teardown == "stop")
+        .unwrap_or(false);
+
+    if is_persistent {
+        if health_check(&base_url, path, 3).await.is_ok() {
+            // حتی اگه تو started_boxes بود، پاکش کن — این‌بار مال ما نیست
+            // و نمی‌خوایم بعداً teardown روش اجرا بشه.
+            if let Some(mc) = my_dbox {
+                let my_dir = expand_tilde(&mc.compose_dir);
+                started_boxes.lock().unwrap().remove(&my_dir);
+            }
+            return PreflightResult::AlreadyUp;
+        }
+        // پورت جواب نمی‌ده → persistent ولی خاموشه → up کن (پایین می‌رسیم)
+    }
+
+    // ── ۱. boxهایی که ما شروع کردیم رو down کن ──
+    // ⚠️ اگه این lab persistent باشه، دایرکتوری خودش رو از لیست حذف می‌کنیم
+    // چون down کردنش یعنی از دست دادن state (نصب Drupal).
+    let my_dir_for_skip = my_dbox.map(|mc| expand_tilde(&mc.compose_dir));
+
     let to_down: Vec<PathBuf> = {
         let mut set = started_boxes.lock().unwrap();
-        let all: Vec<PathBuf> = set.iter().cloned().collect();
-        set.clear();
+        let all: Vec<PathBuf> = set
+            .iter()
+            .filter(|p| {
+                // اگه persistent و همون dir خودمون → رد کن
+                !(is_persistent && Some(*p) == my_dir_for_skip.as_ref())
+            })
+            .cloned()
+            .collect();
+        for p in &all {
+            set.remove(p);
+        }
         all
     };
+
     for dir in &to_down {
         let _ = tokio::process::Command::new("docker")
             .args(["compose", "down"])
@@ -73,27 +110,57 @@ pub async fn preflight(
         });
     }
 
-    // ── ۲. صبر کن پورت واقعاً آزاد بشه (docker down فوری release نمی‌کنه) ──
     if !to_down.is_empty() {
         wait_for_port_free(&base_url, 10).await;
     }
 
-    // ── ۳. اگه هنوز پورت بنده، یه container ناشناس اونجاست ──
-    if health_check(&base_url, path, 1).await.is_ok() {
+    // ── ۲. پورت هنوز بنده؟ ──
+    /* health_check(&base_url, path, 1).await.is_ok() {
         return PreflightResult::Down(format!(
             "port {} is occupied by a container Aegis did NOT start. \
-             Run `docker ps` and `docker kill <id>` manually. \
-             This usually means a leftover from a previous manual run.",
+             If it's a persistent lab you want to keep, set `teardown: stop` \
+             in its box spec. Otherwise run `docker ps` and `docker kill <id>`.",
             base_url
+        ));
+    }*/
+    if health_check(&base_url, path, 1).await.is_ok() {
+        // لیست container‌هایی که روی این پورت publish شدن
+        let port = url::Url::parse(&base_url)
+            .ok()
+            .and_then(|u| u.port_or_known_default())
+            .unwrap_or(80);
+
+        let ps_out = tokio::process::Command::new("docker")
+            .args(["ps", "--filter", &format!("publish={}", port), "--format", "{{.ID}}\t{{.Names}}\t{{.Image}}"])
+            .output()
+            .await
+            .ok();
+
+        let containers = ps_out
+            .as_ref()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+
+        // اگه همون compose_dir خودمون بود، یعنی persistentـه → reuse
+        let is_persistent = my_dbox.map(|b| b.teardown == "stop").unwrap_or(false);
+        if is_persistent {
+            return PreflightResult::AlreadyUp;
+        }
+
+        return PreflightResult::Down(format!(
+            "port {} is occupied by container(s) Aegis did NOT start:\n{}\n\
+            Fix: docker ps --filter publish={} --format '{{{{.ID}}}}' | xargs -r docker kill\n\
+            Or set `teardown: stop` in this lab's box spec if you want to keep it across runs.",
+            port, containers, port
         ));
     }
 
-    // ── ۴. این lab حتماً dbox داره ──
+    // ── ۳. این lab باید dbox داشته باشه ──
     let Some(mc) = my_dbox else {
         return PreflightResult::Down("target server is not reachable (no box to start)".into());
     };
 
-    // ── ۵. up کن ──
+    // ── ۴. up ──
     let my_dir = expand_tilde(&mc.compose_dir);
     let up_ok = match tokio::process::Command::new("docker")
         .args(["compose", "up", "-d"])
@@ -134,7 +201,6 @@ pub async fn preflight(
         ));
     }
 
-    // ── ۶. انتظار برای up شدن سرویس ──
     let wait = mc.wait_secs.max(1);
     let steps = (wait * 10).max(1);
     for _ in 0..steps {
