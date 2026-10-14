@@ -36,6 +36,7 @@ pub async fn serve(addr: &str, app: AppCtx) -> Result<(), Box<dyn std::error::Er
         .route("/api/models", get(handlers::list_models))
         .route("/api/run-all", post(handlers::run_all))
         .route("/api/stop", post(handlers::stop_lab))
+        .route("/api/labs/reload", post(handlers::reload_labs))
         .with_state(app);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;

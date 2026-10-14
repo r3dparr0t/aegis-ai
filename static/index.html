@@ -53,6 +53,7 @@
   .labs-header .lbl{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.9px;font-weight:600}
   .labs-header .actions{display:flex;gap:6px}
   .labs-header button{padding:4px 10px;font-size:11px;border-radius:5px}
+  .labs-header button.icon-only{padding:4px 8px}
 
   .search-sort-bar{
     padding:8px 22px;
@@ -309,6 +310,7 @@
       <div class="labs-header">
         <span class="lbl">Labs</span>
         <div class="actions">
+          <button class="icon-only" onclick="reloadLabs()" id="reload-btn" title="Re-read labs/*.yaml from disk">🔄</button>
           <button onclick="openNewLabModal()" title="Create a new lab">+ New</button>
           <button onclick="runAll()" title="Run all visible labs sequentially">▶ Run all</button>
         </div>
@@ -408,11 +410,9 @@ let pollingTimer = null;
 let providerInfo = null;
 let selectedModel = null;
 
-// search + sort state
 let searchQuery = '';
 let sortMode = 'order';
 
-// stop button state — ریست میشه به‌محض اینکه polling ببینه lab دیگه running نیست
 let stopRequested = false;
 
 const $ = id => document.getElementById(id);
@@ -526,12 +526,41 @@ function visibleLabs() {
       if (k === 'failed')    return 1;
       if (k === 'cancelled') return 2;
       if (k === 'passed')    return 3;
-      return 4; // untouched
+      return 4;
     };
     list.sort((a,b) => rank(a.status) - rank(b.status));
   }
 
   return list;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Reload from disk
+// ═══════════════════════════════════════════════════════════════
+async function reloadLabs() {
+  const btn = $('reload-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const r = await fetch('/api/labs/reload', { method: 'POST' });
+    if (r.ok) {
+      const data = await r.json();
+      toast(`Reloaded ${data.count} lab(s) from disk`);
+      // اگه lab فعلی دیگه وجود نداره، برو home
+      await loadLabs();
+      if (currentIdx !== null && !labs[currentIdx]) {
+        goHome();
+      } else if (currentIdx !== null) {
+        await renderMain();
+      }
+    } else {
+      const err = await r.text();
+      toast(err.slice(0, 100) || 'Reload failed', true);
+    }
+  } catch (e) {
+    toast('Network error', true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔄'; }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -583,12 +612,12 @@ function renderWelcome() {
         <div class="welcome-section">
           <h3>Quick start</h3>
           <ul class="welcome-list">
+            <li><span class="ico">🔄</span><span>Click <code>🔄</code> to re-read <code>labs/*.yaml</code> from disk without restarting.</span></li>
             <li><span class="ico">🔍</span><span>Filter labs with the search box; sort with the icon buttons.</span></li>
             <li><span class="ico">▶</span><span>Run one with <code>▶ Run</code> — or all visible with <code>▶ Run all</code>.</span></li>
             <li><span class="ico">■</span><span>While running, hit <code>■ Stop</code> to cancel cleanly.</span></li>
             <li><span class="ico">📝</span><span>Edit a lab's <code>YAML</code> and save; changes apply immediately.</span></li>
             <li><span class="ico">📄</span><span>Each run produces a report under the <code>Reports</code> tab.</span></li>
-            <li><span class="ico">📋</span><span>Copy a report's raw JSON with the <code>Copy</code> button.</span></li>
           </ul>
         </div>
 
@@ -614,13 +643,10 @@ async function loadLabs() {
     labs = await r.json();
     renderLabList();
 
-    // ★ وقتی lab جاری دیگه running نیست، دکمهٔ Stop رو ریست کن
-    //   (این‌طوری به‌جای ۱۵ ثانیه انتظار کور، به‌محض تشخیص، ریست میشه)
     if (stopRequested && currentIdx !== null && labs[currentIdx]) {
       const k = labs[currentIdx].status?.kind;
       if (k !== 'running') resetStopBtn();
     }
-    // اگه currentIdx null بود و هیچ labی running نبود هم ریست کن
     if (stopRequested && !labs.some(l => l.status?.kind === 'running')) {
       resetStopBtn();
     }
@@ -782,7 +808,6 @@ async function runAll() {
       toast(`Running ${indices.length} lab(s)`);
       startPolling();
     } else if (r.status === 409) {
-      // ★ پیام واضح‌تر
       toast('Another lab is already running — stop it first', true);
     } else {
       const err = await r.text();
@@ -1132,7 +1157,7 @@ async function runCurrent() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Stop — دیگه ۱۵ ثانیه قفل نمیشه
+// Stop
 // ═══════════════════════════════════════════════════════════════
 function resetStopBtn() {
   stopRequested = false;
@@ -1154,7 +1179,6 @@ async function stopCurrent() {
   const btn = $('stop-btn');
   if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Stopping...'; }
 
-  // safety: اگه تا ۳۰ ثانیه state عوض نشد، دکمه رو آزاد کن
   clearTimeout(stopCurrent._safety);
   stopCurrent._safety = setTimeout(() => {
     if (stopRequested) {
@@ -1167,7 +1191,6 @@ async function stopCurrent() {
     const r = await fetch('/api/stop', { method: 'POST' });
     if (r.ok) {
       toast('Stopping…');
-      // polling هر ثانیه چک میکنه؛ به‌محض دیدن state != running، دکمه ریست میشه
     } else {
       const err = await r.text();
       toast(err.slice(0, 80) || 'Stop failed', true);

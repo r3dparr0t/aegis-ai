@@ -110,6 +110,20 @@ impl EngineObserver for WebStateObserver {
             Event::BoxDown { compose_dir } => {
                 s.push("🐳", format!("box down: {}", compose_dir), "state");
             }
+            Event::SetupCommandStarted { service } => {
+                s.push("🔧", format!("setup running in '{}'", service), "info");
+            }
+            Event::SetupCommandFinished { service, success, excerpt } => {
+                s.push(
+                    if *success { "🔧" } else { "⚠️" },
+                    format!(
+                        "setup {}: {}",
+                        service,
+                        excerpt.chars().take(100).collect::<String>()
+                    ),
+                    if *success { "info" } else { "fail" },
+                );
+            }
             Event::ServerUp { lab_id } => {
                 s.server_up.insert(lab_id.clone(), true);
                 s.push("🟢", format!("server up: {}", lab_id), "pass");

@@ -2,6 +2,12 @@
 
 /// از یک متن آزاد (که ممکنه reasoning، ``` fence، یا حتی </think> داشته باشه)
 /// اولین JSON object معتبر رو بیرون می‌کشه.
+///
+/// نکته‌ی مهم: در حالت fallback (بدون fence)، از brace-matching استفاده
+/// می‌کنیم نه `rfind('}')`. چون خروجی مدل می‌تونه حاوی JSON اصلی + متن
+/// اضافی (lessons تزریق‌شده، توضیح مدل، مثال) باشه. اگه `rfind('}')`
+/// بزنیم، آخرین `}` کل متن رو می‌گیریم که مال متن اضافیه و JSON اصلی رو
+/// با garbage ترکیب می‌کنه => invalid_json.
 pub fn extract_json_object(text: &str) -> Option<String> {
     // ۰. اگه </think> داره، فقط بعدش رو نگاه کن
     let body = if let Some(idx) = text.rfind("</think>") {
@@ -32,15 +38,36 @@ pub fn extract_json_object(text: &str) -> Option<String> {
         }
     }
 
-    // ۳. اولین `{` تا آخرین `}`
+    // ۳. brace-matching از اولین `{` — تا } متناظر.
+    //    string-aware: `{` و `}` داخل "..." شمرده نمیشن، و `\"` escape
+    //    رو درست مدیریت می‌کنیم.
     let start = body.find('{')?;
-    let end = body.rfind('}')?;
-    if end > start {
-        Some(body[start..=end].to_string())
-    } else {
-        None
+    let mut depth: i32 = 0;
+    let mut in_string = false;
+    let mut escape = false;
+
+    for (i, c) in body[start..].char_indices() {
+        if escape {
+            escape = false;
+            continue;
+        }
+        match c {
+            '\\' if in_string => escape = true,
+            '"' => in_string = !in_string,
+            '{' if !in_string => depth += 1,
+            '}' if !in_string => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(body[start..start + i + 1].to_string());
+                }
+            }
+            _ => {}
+        }
     }
+
+    None
 }
+
 /// حذف Fenceهای Markdown (مثل ```json ... ``` یا ``` ... ```) از خروجی خام مدل
 pub fn strip_code_fences(output: &str) -> String {
     let trimmed = output.trim();
@@ -61,11 +88,9 @@ pub fn repair_json(text: &str) -> Option<String> {
 
     // فقط ساده‌ترین حالت: top-level field با value تک‌کوتیشنی
     // "body": '...'   →   "body": "..."
-    // الگوی امن: فقط top-level keys که value رو با ' شروع کرده و با ' تموم می‌کنه
     let re = regex::Regex::new(r#":\s*'([^']*)'"#).ok()?;
     let result = re.replace_all(text, |caps: &regex::Captures| {
         let inner = &caps[1];
-        // escape double quotes and backslashes داخل value
         let escaped = inner
             .replace('\\', "\\\\")
             .replace('"', "\\\"");

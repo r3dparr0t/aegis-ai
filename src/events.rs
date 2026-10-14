@@ -9,9 +9,7 @@ pub enum Event {
     LabFinished { lab_id: String, lab_name: String, success: bool, attempts: u32 },
     AttemptStarted { execution_id: String, attempt: u32, max_attempts: u32 },
     LessonsInjected { count: usize, texts: Vec<String> },
-    /// hintهای دستیِ YAML که این attempt فعال شدن (بعد از after_attempt).
     HintsActive { attempt: u32, messages: Vec<String> },
-    /// provider این اجرا، سر یه attempt مشخص، طبق fallback_strategy عوض شد.
     ModelFallback { attempt: u32, from_model: String, to_model: String },
     LlmCalling,
     LlmResponded { raw: String, latency_ms: u64 },
@@ -22,13 +20,18 @@ pub enum Event {
     EvaluationFailed { category: String, detail: String },
     LessonSaved { id: String, text: String },
     Error {
-        context: &'static str,   // "llm" / "database" / "parse" / "execute"
+        context: &'static str,   // "llm" / "database" / "parse" / "execute" / "box" / "setup"
         message: String,
         fatal: bool,
     },
     State { transition: ExecutionState },
     BoxUp      { compose_dir: String },
     BoxDown    { compose_dir: String },
+    /// setup_command شروع شد (قبل از اجرای `docker compose exec`)
+    SetupCommandStarted  { service: String },
+    /// setup_command تموم شد — `success=false` یعنی exit code غیر صفر یا timeout.
+    /// `excerpt` خلاصهٔ stdout+stderr (حداکثر ۴۰۰ کاراکتر).
+    SetupCommandFinished { service: String, success: bool, excerpt: String },
     ServerUp   { lab_id: String },
     ServerDown { lab_id: String, reason: String },
     LabSkipped { lab_id: String, reason: String },
@@ -84,7 +87,8 @@ impl EngineObserver for ConsoleObserver {
                 println!("❌ Evaluator: FAILED [{}] - {}", category, detail);
             }
             Event::LessonSaved { id, text } => {
-                println!("💾 Saved new lesson [{}]: {}", &id[..8.min(id.len())], text);
+                let short: String = id.chars().take(8).collect();
+                println!("💾 Saved new lesson [{}]: {}", short, text);
             }
             Event::LabStarted { lab_name, .. } => {
                 println!("\n=== 🧪 {} ===", lab_name);
@@ -100,6 +104,13 @@ impl EngineObserver for ConsoleObserver {
             Event::State { transition } => println!("🔷 [STATE] {}", transition),
             Event::BoxUp { compose_dir } => println!("🐳 box up: {}", compose_dir),
             Event::BoxDown { compose_dir } => println!("🐳 box down: {}", compose_dir),
+            Event::SetupCommandStarted { service } => {
+                println!("🔧 setup: running command in '{}'...", service);
+            }
+            Event::SetupCommandFinished { service, success, excerpt } => {
+                let mark = if success { "✓" } else { "✗" };
+                println!("🔧 setup [{}] {}: {}", service, mark, excerpt);
+            }
             Event::ServerUp { lab_id } => println!("✓ server up for '{}' — going to fuzz", lab_id),
             Event::ServerDown { lab_id, reason } => {
                 println!("✗ server down for '{}': {}", lab_id, reason);
@@ -112,4 +123,3 @@ impl EngineObserver for ConsoleObserver {
 }
 
 pub type SharedObserver = Arc<dyn EngineObserver>;
-

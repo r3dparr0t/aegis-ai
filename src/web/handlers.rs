@@ -637,3 +637,54 @@ pub async fn stop_lab(State(app): State<AppCtx>) -> impl IntoResponse {
     app.ctx.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
     (StatusCode::OK, "stopping...").into_response()
 }
+
+/// دوباره از پوشه labs/ همه YAMLها رو می‌خونه و لیست رو جایگزین می‌کنه.
+/// فقط وقتی run_lock آزاده اجرا می‌شه — نمی‌خوایم وسط یه ران، labs
+/// جابه‌جا شن.
+///
+/// توجه: state همه‌ی labها به Untouched ریست می‌شه (چون Lab::new ساخته
+/// می‌شه). این عمدیه — reload یعنی «از دیسک بخون»، نه «state رو نگه دار».
+pub async fn reload_labs(State(app): State<AppCtx>) -> impl IntoResponse {
+    if app.ctx.run_lock.lock().unwrap().is_some() {
+        return (
+            StatusCode::CONFLICT,
+            "cannot reload labs while a lab is running",
+        )
+            .into_response();
+    }
+
+    let labs_dir = app.config.paths.labs_dir.clone();
+    let dir_str = match labs_dir.to_str() {
+        Some(s) => s.to_string(),
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "labs_dir is not valid UTF-8",
+            )
+                .into_response();
+        }
+    };
+
+    let new_labs = match crate::labs::registry::load_labs(&dir_str) {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to load labs: {}", e),
+            )
+                .into_response();
+        }
+    };
+
+    let count = new_labs.len();
+    {
+        let mut labs = app.labs.write().unwrap();
+        *labs = new_labs;
+    }
+
+    (
+        StatusCode::OK,
+        Json(json!({ "reloaded": true, "count": count })),
+    )
+        .into_response()
+}
