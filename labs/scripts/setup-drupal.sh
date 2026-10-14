@@ -1,31 +1,27 @@
 #!/usr/bin/env bash
 # setup-drupal.sh — نصب خودکار Drupal برای CVE-2018-7600 (vulhub).
-# قبل از اجرای lab باید یک بار run بشه. چون teardown: stop گذاشتیم،
-# کانتینر بین ران‌ها باقی می‌مونه و نیازی به تکرار نیست.
-# اگه یه بار docker compose down -v زدی، دوباره اجراش کن.
-
-set -euo pipefail
+# یک بار اجرا کافیه. چون teardown: stop هست، بین ران‌ها باقی می‌مونه.
 
 DRUPAL_DIR="${DRUPAL_DIR:-$HOME/vulhub-master/drupal/CVE-2018-7600}"
 DRUSH_URL="https://github.com/drush-ops/drush/releases/download/8.4.12/drush.phar"
 
-if [[ ! -d "$DRUPAL_DIR" ]]; then
+if [ ! -d "$DRUPAL_DIR" ]; then
     echo "❌ Drupal dir not found: $DRUPAL_DIR" >&2
     exit 1
 fi
 
-cd "$DRUPAL_DIR"
+cd "$DRUPAL_DIR" || exit 1
 
 echo "▶ 1/7  clean slate"
-docker compose down -v 2>/dev/null || true
-docker ps -q | xargs -r docker kill >/dev/null 2>&1 || true
+docker compose down -v 2>/dev/null
+# docker ps -q | xargs -r docker kill 2>/dev/null
 
 echo "▶ 2/7  up"
-docker compose up -d
+docker compose up -d || exit 1
 sleep 5
 
 echo "▶ 3/7  pre-check"
-curl -sI http://localhost:8080/ | head -1 || true
+curl -sI http://localhost:8080/ | head -1
 
 echo "▶ 4/7  drush site-install"
 docker compose exec -T web bash -c "
@@ -37,6 +33,7 @@ docker compose exec -T web bash -c "
         --account-name=admin --account-pass=admin \
         --site-name=test -y
 "
+echo "   (drush exit: $? — اگر warning داد مهم نیست)"
 
 echo "▶ 5/7  fix permissions"
 docker compose exec -T web bash -c "
@@ -47,7 +44,7 @@ docker compose exec -T web bash -c "
 
 echo "▶ 6/7  clear twig cache"
 docker compose exec -T web bash -c "
-    rm -rf /var/www/html/sites/default/files/php/twig/* 2>/dev/null || true
+    rm -rf /var/www/html/sites/default/files/php/twig/* 2>/dev/null
 "
 
 echo "▶ 7/7  restart + verify"

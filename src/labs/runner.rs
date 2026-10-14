@@ -11,8 +11,7 @@ use crate::{
 use super::{
     dbox::{self, PreflightResult},
     lab::Lab,
-    run_task,
-    LabContext,
+    run_task, LabContext, TaskOutcome,
 };
 
 pub async fn run_lab(
@@ -21,12 +20,6 @@ pub async fn run_lab(
     all_labs: &[Arc<Lab>],
     goal: Option<String>,
 ) {
-    // توجه: اینجا عمداً چک نمی‌کنیم که ctx.cancel چی‌ئه. تنها جایی که این
-    // flag رو false می‌کنه خط اول run_locked()ه — اگه این‌جا هم روش چک
-    // می‌کردیم، بعد از اولین Stop، هیچ‌وقت نوبت به اون reset نمی‌رسید (چون
-    // هیچ‌وقت run_locked صدا زده نمی‌شد) و کل برنامه برای همیشه قفل می‌موند.
-    // try_start/RunLock به‌تنهایی کافیه که دو اجرا هم‌زمان نشن؛ cancel فقط
-    // باید اجرای *در حال انجام* رو متوقف کنه، نه جلوی اجراهای بعدی رو بگیره.
     if !Lab::try_start(lab, &ctx.run_lock) {
         eprintln!(
             "⚠️  Lab '{}' skipped — another lab is already running.",
@@ -43,11 +36,12 @@ pub async fn run_locked(
     all_labs: &[Arc<Lab>],
     goal: Option<String>,
 ) {
-    // reset ONCE
+    // reset ONCE per lab — نه per اجرا. این‌طوری اگه کاربر وسط loop
+    // Stop بزنه، lab بعدی که شروع بشه cancel رو صفر نمی‌کنه (چون loop
+    // قبل از صدا زدن run_locked چک می‌کنه).
     ctx.cancel.store(false, std::sync::atomic::Ordering::SeqCst);
     let lab_id = lab.id();
 
-    // ── ۱. preflight ──
     let preflight = dbox::preflight(
         lab,
         all_labs,
@@ -58,24 +52,23 @@ pub async fn run_locked(
     )
     .await;
 
-    // اگه کاربر وسط preflight Stop زد
     if ctx.cancel.load(std::sync::atomic::Ordering::SeqCst) {
         eprintln!("[STOP] lab {} cancelled during preflight", lab.name());
         if matches!(preflight, PreflightResult::Started) {
             dbox::teardown(lab, ctx.auto_manage_box, &ctx.observer, &ctx.started_boxes).await;
         }
-        Lab::finish_untouched(lab, &ctx.run_lock);
+        Lab::finish_cancelled(lab, &ctx.run_lock);
         return;
     }
 
     let (should_fuzz, owns_box) = match preflight {
         PreflightResult::AlreadyUp => {
             ctx.observer.on_event(Event::ServerUp { lab_id: lab_id.clone() });
-            (true, false)   // ← مالک نیست
+            (true, false)
         }
         PreflightResult::Started => {
             ctx.observer.on_event(Event::ServerUp { lab_id: lab_id.clone() });
-            (true, true)    // ← مالک‌ـه
+            (true, true)
         }
         PreflightResult::Down(reason) => {
             ctx.observer.on_event(Event::ServerDown { lab_id: lab_id.clone(), reason: reason.clone() });
@@ -84,20 +77,18 @@ pub async fn run_locked(
         }
     };
 
-    // ── ۲. fuzz (اگه server up بود) ──
-    let (success, attempts) = if should_fuzz {
+    let outcome = if should_fuzz {
         match execute_lab(ctx, lab, goal).await {
-            Ok(r) => r,
+            Ok(o) => o,
             Err(msg) => {
                 eprintln!("❌ Lab '{}' failed to start: {}", lab_id, msg);
-                (false, 0)
+                TaskOutcome::Errored
             }
         }
     } else {
-        (false, 0)
+        TaskOutcome::Errored
     };
 
-    // ── ۳. teardown فقط اگه خودمون بالا آورده بودیم ──
     if owns_box {
         dbox::teardown(lab, ctx.auto_manage_box, &ctx.observer, &ctx.started_boxes).await;
         ctx.observer.on_event(Event::ServerDown {
@@ -105,12 +96,17 @@ pub async fn run_locked(
             reason: "box was stopped after the run".to_string(),
         });
     }
-    
-    // ── ۴. state ──
-    if should_fuzz {
-        Lab::finish(lab, &ctx.run_lock, success, attempts);
-    } else {
+
+    if !should_fuzz {
         Lab::finish_untouched(lab, &ctx.run_lock);
+        return;
+    }
+
+    match outcome {
+        TaskOutcome::Success { attempts } => Lab::finish(lab, &ctx.run_lock, true, attempts),
+        TaskOutcome::Failed  { attempts } => Lab::finish(lab, &ctx.run_lock, false, attempts),
+        TaskOutcome::Cancelled            => Lab::finish_cancelled(lab, &ctx.run_lock),
+        TaskOutcome::Errored              => Lab::finish_untouched(lab, &ctx.run_lock),
     }
 }
 
@@ -118,7 +114,7 @@ async fn execute_lab(
     ctx: &LabContext,
     lab: &Lab,
     goal: Option<String>,
-) -> Result<(bool, u32), String> {
+) -> Result<TaskOutcome, String> {
     let provider = pick_provider(ctx, lab).await;
     let executor = lab.build_executor()?;
     let evaluator = lab.build_evaluator();

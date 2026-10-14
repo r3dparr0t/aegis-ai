@@ -20,11 +20,7 @@ pub mod dbox;
 pub use lab::{Lab, LabState, RunLock};
 pub use spec::LabSpec;
 
-/// وابستگی‌های مشترک بین همه‌ی Labها.
 pub struct LabContext {
-    /// پشت RwLock چون از پنل وب قابل تعویضه (دراپ‌داون مدل). هر جا لازمه،
-    /// یه snapshot (`.read().unwrap().clone()`) بگیر، نگه‌اش ندار — چون
-    /// Arc<dyn LlmProvider> سبکه (فقط یه اشاره‌گر)، کلون‌کردنش ارزونه.
     pub provider: RwLock<Arc<dyn LlmProvider>>,
     pub memory_repo: SqliteMemoryRepository,
     pub prefix: String,
@@ -33,13 +29,21 @@ pub struct LabContext {
     pub reports_dir: std::path::PathBuf,
     pub auto_manage_box: bool,
     pub cancel: Arc<std::sync::atomic::AtomicBool>,
-    /// مسیر boxهایی که خود Aegis بالا آورده و هنوز down نکرده.
-    /// این رو نگه می‌داریم تا بتونیم بین «کاربر دستی بالا آورده» و
-    /// «ما بالا آوردیم» فرق بذاریم.
     pub started_boxes: Arc<std::sync::Mutex<HashSet<std::path::PathBuf>>>,
 }
 
-/// اجرای یه Lab و برگرداندن (success, attempts).
+/// نتیجهٔ واقعیِ یک اجرای engine — سه حالت متمایز که caller باید تفکیک کنه.
+#[derive(Debug, Clone, Copy)]
+pub enum TaskOutcome {
+    Success { attempts: u32 },
+    Failed  { attempts: u32 },
+    /// کاربر Stop زده — نه success، نه fail. lab باید Cancelled بمونه.
+    Cancelled,
+    /// خطای غیرمنتظره (LLM/Database) یا اصلاً اجرا شروع نشد.
+    Errored,
+}
+
+/// اجرای یه Lab و برگرداندن نتیجهٔ کامل.
 pub async fn run_task(
     engine: &ExecutionEngine,
     memory_repo: &SqliteMemoryRepository,
@@ -48,7 +52,8 @@ pub async fn run_task(
     lab: &Lab,
     system_prompt: &str,
     user_input: &str,
-) -> (bool, u32) {
+) -> TaskOutcome {
+    use crate::domain::EngineError;
     use crate::events::Event;
 
     let lab_id = lab.id();
@@ -60,16 +65,27 @@ pub async fn run_task(
         task_type: lab.spec().task.task_type,
     });
 
-    let (success, attempts) = match engine.execute(system_prompt, user_input).await {
+    let outcome = match engine.execute(system_prompt, user_input).await {
         Ok((execution_id, _res, attempts)) => {
-        	write_report(memory_repo, reports_dir, &execution_id, &lab_id, &lab_name).await;
-            (true, attempts)
+            write_report(memory_repo, reports_dir, &execution_id, &lab_id, &lab_name).await;
+            TaskOutcome::Success { attempts }
         }
-        Err(crate::domain::EngineError::MaxAttemptsExceeded { execution_id, attempts }) => {
-        	write_report(memory_repo, reports_dir, &execution_id, &lab_id, &lab_name).await;
-            (false, attempts)
+        Err(EngineError::MaxAttemptsExceeded { execution_id, attempts }) => {
+            write_report(memory_repo, reports_dir, &execution_id, &lab_id, &lab_name).await;
+            TaskOutcome::Failed { attempts }
         }
-        Err(_) => (false, 0),
+        Err(EngineError::Cancelled { .. }) => TaskOutcome::Cancelled,
+        Err(e) => {
+            eprintln!("⚠️  Lab '{}' errored: {}", lab_name, e);
+            TaskOutcome::Errored
+        }
+    };
+
+    let (success, attempts) = match outcome {
+        TaskOutcome::Success { attempts } => (true, attempts),
+        TaskOutcome::Failed  { attempts } => (false, attempts),
+        TaskOutcome::Cancelled => (false, 0),
+        TaskOutcome::Errored => (false, 0),
     };
 
     observer.on_event(Event::LabFinished {
@@ -79,7 +95,7 @@ pub async fn run_task(
         attempts,
     });
 
-    (success, attempts)
+    outcome
 }
 
 async fn write_report(
@@ -101,12 +117,7 @@ async fn write_report(
         return;
     }
 
-    // نام فایل با lab_id ساخته می‌شه (نه اسم انسانیِ label)، چون
-    // `list_reports` توی handlers.rs دنبال فایل‌هایی می‌گرده که با همین
-    // lab_id شروع بشن. قبلاً این‌جا از slugify(label) استفاده می‌شد که
-    // هیچ‌وقت با lab_id یکی نمی‌شد (مثلاً "Lab 1 — ..." → "lab_1_api_v1_..."
-    // در مقابل "lab1_fetch")، پس تب گزارش‌ها همیشه خالی برمی‌گشت.
-	let base_path = reports_dir.join(format!("{}_{}", lab_id, execution_id));
+    let base_path = reports_dir.join(format!("{}_{}", lab_id, execution_id));
     match serde_json::to_string_pretty(&report) {
         Ok(json) => {
             if let Err(e) = fs::write(base_path.with_extension("json"), json) {
@@ -158,11 +169,6 @@ fn render_markdown_report(report: &ExecutionReport, label: &str) -> String {
         md.push_str("\n```\n\n");
     }
 
-    // ── Lessons Used ──
-    // درس‌هایی که از حافظه بازیابی و به attemptهای این اجرا تزریق شدند.
-    // این بخش برای تفکیک «یادگیری مؤثر» از «تکرار کورکورانه‌ی خطا» حیاتیه:
-    // اگه یه lesson به چند attempt تزریق شده ولی هیچ‌کدوم پاس نشده،
-    // یعنی اون lesson اصلاً کمک‌کننده نبوده و باید بازنویسی بشه.
     if !report.lessons_used.is_empty() {
         let total = report.lessons_used.len();
         let passed = report
@@ -180,7 +186,7 @@ fn render_markdown_report(report: &ExecutionReport, label: &str) -> String {
         md.push_str("| Lesson ID | Attempt | Result |\n");
         md.push_str("|-----------|---------|--------|\n");
         for lu in &report.lessons_used {
-            let id_short = &lu.lesson_id[..8.min(lu.lesson_id.len())];
+            let id_short: String = lu.lesson_id.chars().take(8).collect();
             let result = if lu.resulted_in_success { "✅" } else { "❌" };
             md.push_str(&format!(
                 "| `{}` | {} | {} |\n",

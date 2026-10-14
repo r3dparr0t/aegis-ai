@@ -452,29 +452,37 @@ impl ExecutionEngine {
             self.state(ExecutionState::Executing { payload: payload.clone() });
             self.emit(Event::PayloadParsed { payload: payload_str });
 
-            let outcome = match self.executor.execute(&payload).await {
-                Ok(o) => o,
-                Err(err) => {
-                    self.emit_error("execute", format!("executor error: {}", err), false);
-                    let eval_result = EvaluationResult {
-                        is_valid: false,
-                        error: Some(EvaluationError::MissingField),
-                        error_details: Some(err.to_string()),
-                    };
-                    self.record_attempt_and_learn(
-                        &execution_id,
-                        current_attempt,
-                        &request,
-                        &response,
-                        &eval_result,
-                        &lesson_ids_used_this_attempt,
-                        &mut accumulated_lessons,
-                    )
-                    .await?;
-                    current_attempt += 1;
-                    continue;
+            let outcome = tokio::select! {
+                res = self.executor.execute(&payload) => {
+                    match res {
+                        Ok(o) => o,
+                        Err(err) => {
+                            self.emit_error("execute", format!("executor error: {}", err), false);
+                            let eval_result = EvaluationResult {
+                                is_valid: false,
+                                error: Some(EvaluationError::MissingField),
+                                error_details: Some(err.to_string()),
+                            };
+                            self.record_attempt_and_learn(
+                                &execution_id,
+                                current_attempt,
+                                &request,
+                                &response,
+                                &eval_result,
+                                &lesson_ids_used_this_attempt,
+                                &mut accumulated_lessons,
+                            )
+                            .await?;
+                            current_attempt += 1;
+                            continue;
+                        }
+                    }
                 }
-            };
+            _ = wait_for_cancel(&self.config.cancel) => {
+                eprintln!("[STOP] cancelled during target execution");
+                return Err(EngineError::Cancelled { execution_id: execution_id.clone() });
+            }
+        };
 
             // -------------------------------------------------------------------
             // Evaluate

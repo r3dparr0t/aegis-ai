@@ -182,8 +182,24 @@ pub struct BoxSpec {
     /// - "stop": فقط متوقف می‌شه، state حفظ می‌مونه (`docker compose stop`)
     #[serde(default = "default_teardown")]
     pub teardown: String,
+    /// دستوراتی که بعد از `docker compose up -d` و قبل از health check اجرا می‌شن.
+    /// هر دستور یه shell command که از داخل کانتینر سرویس اجرا می‌شه.
+    #[serde(default)]
+    pub setup_commands: Vec<SetupCommand>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SetupCommand {
+    /// نام سرویس تو docker-compose.yml
+    pub service: String,
+    /// دستور shell
+    pub command: String,
+    /// timeout بر حسب ثانیه
+    #[serde(default = "default_setup_timeout")]
+    pub timeout_secs: u64,
+}
+
+fn default_setup_timeout() -> u64 { 60 }
 fn default_teardown() -> String { "stop".to_string() }
 fn default_wait_secs() -> u64 { 3 }
 fn default_health_path() -> String { "/".to_string() }

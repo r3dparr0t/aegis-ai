@@ -205,6 +205,7 @@ fn print_menu(labs: &[Arc<Lab>]) {
             LabState::Running { .. } => "🟡",
             LabState::Passed { .. } => "🟢",
             LabState::Failed { .. } => "🔴",
+            LabState::Cancelled => "⚫",
         };
         println!("  {}) {} {}", i + 1, mark, lab.name());
         if !lab.description().is_empty() {

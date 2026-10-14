@@ -12,9 +12,6 @@ use crate::{
 
 use super::spec::{EvaluatorSpec, InternalTargetSpec, LabOptions, LabSpec};
 
-/// قفل global تک‌نفره: فقط یک Lab در کل برنامه می‌تونه هم‌زمان در حال اجرا باشه.
-/// (نگاه کن به توضیح مفصل‌تر در نسخه‌ی قبلی — رخدادهای بین‌راهی lab_id ندارن،
-/// پس قفل باید global باشه نه per-lab.)
 pub type RunLock = Arc<Mutex<Option<Arc<Lab>>>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -24,6 +21,8 @@ pub enum LabState {
     Running { attempt: u32, max: u32 },
     Passed { attempts: u32 },
     Failed { attempts: u32 },
+    /// اجرا توسط کاربر متوقف شد — نه موفق، نه شکست واقعی.
+    Cancelled,
 }
 
 impl LabState {
@@ -33,11 +32,11 @@ impl LabState {
             Self::Running { .. } => "running",
             Self::Passed { .. } => "passed",
             Self::Failed { .. } => "failed",
+            Self::Cancelled => "cancelled",
         }
     }
 }
 
-/// یک Lab = spec (پشت RwLock، چون از پنل وب قابل ادیت/جایگزینیه) + state (runtime).
 pub struct Lab {
     spec: RwLock<LabSpec>,
     state: Mutex<LabState>,
@@ -50,8 +49,6 @@ impl Lab {
             state: Mutex::new(LabState::Untouched),
         }
     }
-
-    // ─── Spec (snapshot-based، چون قابل تعویضه) ───
 
     pub fn spec(&self) -> LabSpec {
         self.spec.read().unwrap().clone()
@@ -86,12 +83,6 @@ impl Lab {
         self.spec.read().unwrap().options.clone()
     }
 
-    /// جایگزین‌کردن spec با نسخه‌ی جدید (از پنل وب، بعد از ادیت YAML).
-    /// - اگه در حال اجرا باشه → رد (یه TOCTOU خفیف اینجا هست: بین این چک و
-    ///   نوشتن واقعی، تئوریاً می‌شه یه اجرا از CLI شروع بشه؛ برای این اپ که
-    ///   ادیت‌ها دستی و کم‌تعدادن، اهمیتی نداره — ولی اگه لازم شد، باید
-    ///   `is_running` و نوشتن رو زیر یک قفل مشترک با `try_start` برد)
-    /// - اگه id عوض شده باشه → رد (وگرنه فایل YAML روی دیسک گم می‌شه)
     pub fn replace_spec(&self, new_spec: LabSpec) -> Result<(), String> {
         if self.is_running() {
             return Err("cannot edit a running lab".into());
@@ -99,7 +90,6 @@ impl Lab {
         *self.spec.write().unwrap() = new_spec;
         Ok(())
     }
-    // ─── State ───
 
     pub fn state(&self) -> LabState {
         *self.state.lock().unwrap()
@@ -129,38 +119,38 @@ impl Lab {
         }
     }
 
+    fn release_lock(self_arc: &Arc<Lab>, run_lock: &RunLock) {
+        let mut guard = run_lock.lock().unwrap();
+        if let Some(current) = guard.as_ref() {
+            if Arc::ptr_eq(current, self_arc) {
+                *guard = None;
+            }
+        }
+    }
+
     pub fn finish(self_arc: &Arc<Lab>, run_lock: &RunLock, success: bool, attempts: u32) {
         *self_arc.state.lock().unwrap() = if success {
             LabState::Passed { attempts }
         } else {
             LabState::Failed { attempts }
         };
-
-        let mut guard = run_lock.lock().unwrap();
-        if let Some(current) = guard.as_ref() {
-            if Arc::ptr_eq(current, self_arc) {
-                *guard = None;
-            }
-        }
+        Self::release_lock(self_arc, run_lock);
     }
-    /// پایان اجرا **بدون** تغییر state. فقط run_lock رو آزاد می‌کنه.
-    /// برای وقتی که lab اصلاً اجرا نشد (مثلاً سرور down بود) — lab
-    /// باید `Untouched` بمونه، نه `Failed`.
+
+    /// پایان اجرا با علامت «توسط کاربر متوقف شد».
+    pub fn finish_cancelled(self_arc: &Arc<Lab>, run_lock: &RunLock) {
+        *self_arc.state.lock().unwrap() = LabState::Cancelled;
+        Self::release_lock(self_arc, run_lock);
+    }
+
     pub fn finish_untouched(self_arc: &Arc<Lab>, run_lock: &RunLock) {
         *self_arc.state.lock().unwrap() = LabState::Untouched;
-
-        let mut guard = run_lock.lock().unwrap();
-        if let Some(current) = guard.as_ref() {
-            if Arc::ptr_eq(current, self_arc) {
-                *guard = None;
-            }
-        }
+        Self::release_lock(self_arc, run_lock);
     }
-        pub fn reset(&self) {
+
+    pub fn reset(&self) {
         *self.state.lock().unwrap() = LabState::Untouched;
     }
-
-    // ─── Runtime construction ───
 
     pub fn effective_task_type(&self) -> String {
         let spec = self.spec.read().unwrap();

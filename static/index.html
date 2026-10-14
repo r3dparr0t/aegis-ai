@@ -10,7 +10,7 @@
     --border:#1f2a37; --border-2:#2d3a4d;
     --text:#e6edf3; --text-dim:#8b98a9; --text-faint:#4d5866;
     --accent:#4ea1ff; --green:#3fb950; --yellow:#d29922;
-    --red:#f85149; --gray:#6e7681;
+    --red:#f85149; --gray:#6e7681; --purple:#a371f7;
     --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
   *{box-sizing:border-box;margin:0;padding:0}
@@ -54,7 +54,6 @@
   .labs-header .actions{display:flex;gap:6px}
   .labs-header button{padding:4px 10px;font-size:11px;border-radius:5px}
 
-  /* ═══ Search + Sort bar ═══ */
   .search-sort-bar{
     padding:8px 22px;
     background:var(--panel-2);
@@ -136,6 +135,7 @@
   .lab-dot.running{background:var(--yellow);animation:pulse 1.4s ease-in-out infinite}
   .lab-dot.passed{background:var(--green)}
   .lab-dot.failed{background:var(--red)}
+  .lab-dot.cancelled{background:var(--gray);opacity:0.55;box-shadow:inset 0 0 0 2px var(--bg)}
   @keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(210,153,34,0.5)}50%{opacity:0.7;box-shadow:0 0 0 6px rgba(210,153,34,0)}}
   .lab-info{flex:1;min-width:0}
   .lab-name{font-size:13px;font-weight:500;line-height:1.35;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
@@ -163,6 +163,7 @@
   .status-badge.running{background:var(--yellow)}
   .status-badge.passed{background:var(--green)}
   .status-badge.failed{background:var(--red)}
+  .status-badge.cancelled{background:var(--gray);opacity:0.75}
   .status-badge .dot{width:6px;height:6px;border-radius:50%;background:white}
 
   .tabs{display:flex;gap:2px;padding:0 32px;border-bottom:1px solid var(--border);background:var(--panel-2)}
@@ -309,7 +310,7 @@
         <span class="lbl">Labs</span>
         <div class="actions">
           <button onclick="openNewLabModal()" title="Create a new lab">+ New</button>
-          <button onclick="runAll()" title="Run all labs sequentially">▶ Run all</button>
+          <button onclick="runAll()" title="Run all visible labs sequentially">▶ Run all</button>
         </div>
       </div>
 
@@ -326,22 +327,9 @@
           <button class="clear" onclick="clearSearch()" title="Clear">✕</button>
         </div>
         <div class="sort-btns">
-          <button
-            id="sort-order"
-            class="active"
-            title="Default order (as declared in YAML)"
-            onclick="setSort('order')"
-          >⇅</button>
-          <button
-            id="sort-name"
-            title="Sort by name (A→Z)"
-            onclick="setSort('name')"
-          >A→Z</button>
-          <button
-            id="sort-status"
-            title="Sort by status (running, failed, passed, untouched)"
-            onclick="setSort('status')"
-          >●</button>
+          <button id="sort-order" class="active" title="Default order (as declared in YAML)" onclick="setSort('order')">⇅</button>
+          <button id="sort-name" title="Sort by name (A→Z)" onclick="setSort('name')">A→Z</button>
+          <button id="sort-status" title="Sort by status (running, failed, cancelled, passed, untouched)" onclick="setSort('status')">●</button>
         </div>
       </div>
 
@@ -422,7 +410,10 @@ let selectedModel = null;
 
 // search + sort state
 let searchQuery = '';
-let sortMode = 'order';   // 'order' | 'name' | 'status'
+let sortMode = 'order';
+
+// stop button state — ریست میشه به‌محض اینکه polling ببینه lab دیگه running نیست
+let stopRequested = false;
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
@@ -451,9 +442,10 @@ function stateClass(s) {
 }
 function stateLabel(s) {
   if (!s || !s.kind || s.kind === 'untouched') return 'idle';
-  if (s.kind === 'running') return `running · ${s.attempt}/${s.max}`;
-  if (s.kind === 'passed') return `passed · ${s.attempts} attempts`;
-  if (s.kind === 'failed') return `failed · ${s.attempts} attempts`;
+  if (s.kind === 'running')   return `running · ${s.attempt}/${s.max}`;
+  if (s.kind === 'passed')    return `passed · ${s.attempts} attempts`;
+  if (s.kind === 'failed')    return `failed · ${s.attempts} attempts`;
+  if (s.kind === 'cancelled') return `cancelled`;
   return s.kind;
 }
 
@@ -514,8 +506,6 @@ function setSort(mode) {
   renderLabList();
 }
 
-/// labs رو با فیلتر search و sort mode برمی‌گردونه.
-/// یه کپی می‌سازه تا به آرایه‌ی اصلی دست نزنه.
 function visibleLabs() {
   let list = labs.slice();
 
@@ -532,14 +522,14 @@ function visibleLabs() {
   } else if (sortMode === 'status') {
     const rank = s => {
       const k = s?.kind || 'untouched';
-      if (k === 'running') return 0;
-      if (k === 'failed')  return 1;
-      if (k === 'passed')  return 2;
-      return 3; // untouched
+      if (k === 'running')   return 0;
+      if (k === 'failed')    return 1;
+      if (k === 'cancelled') return 2;
+      if (k === 'passed')    return 3;
+      return 4; // untouched
     };
     list.sort((a,b) => rank(a.status) - rank(b.status));
   }
-  // 'order' → همون ترتیبی که از سرور اومد (already sorted by meta.order)
 
   return list;
 }
@@ -584,7 +574,7 @@ function renderWelcome() {
           <h3>⚠️ Box targets</h3>
           <div class="box-warning">
             <p>Each lab declares its own target in <code>labs/*.yaml</code> under the <code>box.compose_dir</code> field.</p>
-            <p><strong>SSRF labs (1–6):</strong> use the bundled <code>boxes/ssrf</code> (already in this project).</p>
+            <p><strong>SSRF labs:</strong> use the bundled <code>boxes/ssrf</code> (already in this project).</p>
             <p><strong>CVE labs:</strong> point <code>box.compose_dir</code> at your own vulhub clone. Clone it with: <code>git clone https://github.com/vulhub/vulhub ~/vulhub-master</code></p>
             <p>Before each run, Aegis checks whether the target is up. If down and a box path is set, it starts the box. If still down, fuzzing is skipped — nothing is added to the report.</p>
           </div>
@@ -594,10 +584,10 @@ function renderWelcome() {
           <h3>Quick start</h3>
           <ul class="welcome-list">
             <li><span class="ico">🔍</span><span>Filter labs with the search box; sort with the icon buttons.</span></li>
-            <li><span class="ico">▶</span><span>Run one with <code>▶ Run</code> — or all with <code>▶ Run all</code>.</span></li>
+            <li><span class="ico">▶</span><span>Run one with <code>▶ Run</code> — or all visible with <code>▶ Run all</code>.</span></li>
             <li><span class="ico">■</span><span>While running, hit <code>■ Stop</code> to cancel cleanly.</span></li>
             <li><span class="ico">📝</span><span>Edit a lab's <code>YAML</code> and save; changes apply immediately.</span></li>
-            <li><span class="ico">📄</span><span>Each successful run produces a report under the <code>Reports</code> tab.</span></li>
+            <li><span class="ico">📄</span><span>Each run produces a report under the <code>Reports</code> tab.</span></li>
             <li><span class="ico">📋</span><span>Copy a report's raw JSON with the <code>Copy</code> button.</span></li>
           </ul>
         </div>
@@ -623,6 +613,18 @@ async function loadLabs() {
     const r = await fetch('/api/labs');
     labs = await r.json();
     renderLabList();
+
+    // ★ وقتی lab جاری دیگه running نیست، دکمهٔ Stop رو ریست کن
+    //   (این‌طوری به‌جای ۱۵ ثانیه انتظار کور، به‌محض تشخیص، ریست میشه)
+    if (stopRequested && currentIdx !== null && labs[currentIdx]) {
+      const k = labs[currentIdx].status?.kind;
+      if (k !== 'running') resetStopBtn();
+    }
+    // اگه currentIdx null بود و هیچ labی running نبود هم ریست کن
+    if (stopRequested && !labs.some(l => l.status?.kind === 'running')) {
+      resetStopBtn();
+    }
+
     if (currentIdx !== null && labs[currentIdx]) {
       updateHeaderStatus();
     } else if (currentIdx === null) {
@@ -692,6 +694,10 @@ function updateHeaderStatus() {
   const stopBtn = $('stop-btn');
   if (stopBtn) {
     stopBtn.style.display = running ? 'inline-flex' : 'none';
+    if (!running && !stopRequested) {
+      stopBtn.disabled = false;
+      stopBtn.innerHTML = '■ Stop';
+    }
   }
 }
 
@@ -759,7 +765,6 @@ async function applyModel() {
 }
 
 async function runAll() {
-  // فقط لب‌هایی که الان تو UI دیده می‌شن (بعد از فیلتر search و sort)
   const visible = visibleLabs();
   if (!visible.length) {
     toast('No labs to run', true);
@@ -777,9 +782,11 @@ async function runAll() {
       toast(`Running ${indices.length} lab(s)`);
       startPolling();
     } else if (r.status === 409) {
-      toast('A lab is already running', true);
+      // ★ پیام واضح‌تر
+      toast('Another lab is already running — stop it first', true);
     } else {
-      toast('Failed to start', true);
+      const err = await r.text();
+      toast(err.slice(0, 100) || 'Failed to start', true);
     }
   } catch (e) {
     toast('Network error', true);
@@ -953,12 +960,20 @@ async function renderTabBody() {
     const color = attemptColor(ratio);
 
     let note = '';
-    if (!lab.status || lab.status.kind === 'untouched') note = 'Not run yet.';
-    else if (lab.status.kind === 'passed') note = used <= Math.ceil(maxA/2)
-      ? '✅ Solved within the first half of the budget.'
-      : '✅ Solved, but late — needed most of the budget.';
-    else if (lab.status.kind === 'failed') note = '❌ Failed — budget exhausted.';
-    else note = `⏳ In progress... attempt ${used} of ${maxA}.`;
+    const kind = lab.status?.kind || 'untouched';
+    if (kind === 'untouched') {
+      note = 'Not run yet.';
+    } else if (kind === 'passed') {
+      note = used <= Math.ceil(maxA/2)
+        ? '✅ Solved within the first half of the budget.'
+        : '✅ Solved, but late — needed most of the budget.';
+    } else if (kind === 'failed') {
+      note = '❌ Failed — budget exhausted.';
+    } else if (kind === 'cancelled') {
+      note = '■ Cancelled by user — not a failure. Run again when ready.';
+    } else {
+      note = `⏳ In progress... attempt ${used} of ${maxA}.`;
+    }
 
     let serverNoteHTML = '';
     if (lab.server_up === false) {
@@ -984,9 +999,19 @@ async function renderTabBody() {
         </div>`;
     }
 
+    let cancelledNoteHTML = '';
+    if (kind === 'cancelled') {
+      cancelledNoteHTML = `
+        <div class="info-card" style="border-color:var(--gray);background:rgba(110,118,129,0.05);margin-bottom:16px">
+          <h3 style="color:var(--text-dim)">■ Last run cancelled</h3>
+          <div class="info-row"><span class="v plain">Stopped by user before completing. The container was cleaned up, and no report was written for that run.</span></div>
+        </div>`;
+    }
+
     el.innerHTML = `
       ${serverNoteHTML}
       ${setupNoteHTML}
+      ${cancelledNoteHTML}
       <div class="info-grid">
         <div class="info-card">
           <div class="attempt-head">
@@ -1086,12 +1111,20 @@ async function runCurrent() {
     const r = await fetch(`/api/lab/${currentIdx}/run`, { method: 'POST' });
     if (r.ok) {
       toast('Started');
+      stopRequested = false;
       startPolling();
       const stopBtn = $('stop-btn');
-      if (stopBtn) stopBtn.style.display = 'inline-flex';
+      if (stopBtn) { stopBtn.style.display = 'inline-flex'; stopBtn.disabled = false; stopBtn.innerHTML = '■ Stop'; }
     }
-    else if (r.status === 409) { toast('Another lab is running', true); if (btn) { btn.disabled = false; btn.innerHTML = '▶ Run'; } }
-    else { toast('Failed', true); if (btn) { btn.disabled = false; btn.innerHTML = '▶ Run'; } }
+    else if (r.status === 409) {
+      toast('Another lab is already running', true);
+      if (btn) { btn.disabled = false; btn.innerHTML = '▶ Run'; }
+    }
+    else {
+      const err = await r.text();
+      toast(err.slice(0, 100) || 'Failed', true);
+      if (btn) { btn.disabled = false; btn.innerHTML = '▶ Run'; }
+    }
   } catch (e) {
     toast('Network error', true);
     if (btn) { btn.disabled = false; btn.innerHTML = '▶ Run'; }
@@ -1099,34 +1132,50 @@ async function runCurrent() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Stop
+// Stop — دیگه ۱۵ ثانیه قفل نمیشه
 // ═══════════════════════════════════════════════════════════════
-let stopDebounce = false;
-async function stopCurrent() {
-  if (stopDebounce) return;
-  stopDebounce = true;
+function resetStopBtn() {
+  stopRequested = false;
+  const btn = $('stop-btn');
+  if (btn) { btn.disabled = false; btn.innerHTML = '■ Stop'; }
+}
 
+async function stopCurrent() {
+  if (stopRequested) return;
+
+  const running = labs[currentIdx]?.status?.kind === 'running';
+  if (!running) {
+    toast('Nothing is running', true);
+    resetStopBtn();
+    return;
+  }
+
+  stopRequested = true;
   const btn = $('stop-btn');
   if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Stopping...'; }
+
+  // safety: اگه تا ۳۰ ثانیه state عوض نشد، دکمه رو آزاد کن
+  clearTimeout(stopCurrent._safety);
+  stopCurrent._safety = setTimeout(() => {
+    if (stopRequested) {
+      resetStopBtn();
+      toast('Stop is taking longer than expected — check console', true);
+    }
+  }, 30000);
 
   try {
     const r = await fetch('/api/stop', { method: 'POST' });
     if (r.ok) {
-      toast('Stopping...');
-      setTimeout(() => {
-        stopDebounce = false;
-        const b = $('stop-btn');
-        if (b) { b.disabled = false; b.innerHTML = '■ Stop'; }
-      }, 15000);
+      toast('Stopping…');
+      // polling هر ثانیه چک میکنه؛ به‌محض دیدن state != running، دکمه ریست میشه
     } else {
-      toast('Stop failed', true);
-      stopDebounce = false;
-      if (btn) { btn.disabled = false; btn.innerHTML = '■ Stop'; }
+      const err = await r.text();
+      toast(err.slice(0, 80) || 'Stop failed', true);
+      resetStopBtn();
     }
   } catch (e) {
     toast('Network error', true);
-    stopDebounce = false;
-    if (btn) { btn.disabled = false; btn.innerHTML = '■ Stop'; }
+    resetStopBtn();
   }
 }
 
@@ -1221,7 +1270,6 @@ async function copyReport() {
     if (navigator.clipboard && window.isSecureContext) {
       await navigator.clipboard.writeText(currentReportRaw);
     } else {
-      // fallback برای http://localhost (که secure context نیست ولی clipboard API ممکنه کار نکنه)
       const ta = document.createElement('textarea');
       ta.value = currentReportRaw;
       ta.style.position = 'fixed';

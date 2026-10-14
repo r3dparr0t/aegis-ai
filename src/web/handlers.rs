@@ -87,7 +87,7 @@ pub async fn get_yaml(
         if idx >= labs.len() {
             return (StatusCode::NOT_FOUND, "not found").into_response();
         }
-        labs[idx].id() 
+        labs[idx].id()
     };
     let path = app.config.paths.labs_dir.join(format!("{}.yaml", lab_id));
     match std::fs::read_to_string(&path) {
@@ -141,7 +141,6 @@ pub async fn save_yaml(
     }
 
     if new_id != old_id {
-        // چک تکراری نبودن
         let collision = {
             let labs = app.labs.read().unwrap();
             labs.iter().any(|l| l.id() == new_id)
@@ -191,11 +190,9 @@ pub async fn delete_lab(
         return (StatusCode::CONFLICT, "cannot delete a running lab").into_response();
     }
 
-    // حذف فایل YAML
     let path = app.config.paths.labs_dir.join(format!("{}.yaml", lab_id));
     let _ = std::fs::remove_file(&path);
 
-    // حذف از لیست (بر اساس id، چون idx ممکنه shift کرده باشه)
     {
         let mut labs = app.labs.write().unwrap();
         if let Some(pos) = labs.iter().position(|l| l.id() == lab_id) {
@@ -205,9 +202,7 @@ pub async fn delete_lab(
 
     (StatusCode::OK, "deleted").into_response()
 }
-// ═══════════════════════════════════════════════════════════════
-// New Lab + : ساخت یه YAML تمپلیت و اضافه‌کردنش به لیست
-// ═══════════════════════════════════════════════════════════════
+
 #[derive(Deserialize)]
 pub struct CreateLabRequest {
     pub id: String,
@@ -215,7 +210,7 @@ pub struct CreateLabRequest {
     #[serde(default)]
     pub description: String,
     #[serde(default)]
-    pub kind: String,             // "ssrf_json" | "raw"
+    pub kind: String,
     #[serde(default)]
     pub target_url: String,
     #[serde(default)]
@@ -224,6 +219,9 @@ pub struct CreateLabRequest {
     pub method: String,
     #[serde(default)]
     pub max_attempts: Option<u32>,
+    // ★ این فیلد از مودال فرانت میاد ولی قبلاً نادیده گرفته می‌شد.
+    #[serde(default)]
+    pub box_dir: String,
 }
 
 pub async fn create_lab(
@@ -271,6 +269,17 @@ pub async fn create_lab(
         payload.target_url.trim().to_string()
     };
 
+    // ★ اگه کاربر box_dir داده، یه بلوک box کامل بساز
+    let box_block = if payload.box_dir.trim().is_empty() {
+        String::new()
+    } else {
+        let dir = payload.box_dir.trim();
+        format!(
+            "\nbox:\n  compose_dir: \"{}\"\n  teardown: down\n  wait_secs: 5\n",
+            dir
+        )
+    };
+
     let yaml = match kind {
         "raw" => {
             let method = if payload.method.trim().is_empty() {
@@ -285,7 +294,7 @@ pub async fn create_lab(
   description: "{description}"
   order: {order}
   tags: [custom, raw]
-
+{box_block}
 max_attempts: {max_attempts}
 
 target:
@@ -319,6 +328,7 @@ system_prompt: |
                 target_url = target_url,
                 task_type = task_type,
                 method = method,
+                box_block = box_block,
             )
         }
         _ => {
@@ -334,7 +344,7 @@ system_prompt: |
   description: "{description}"
   order: {order}
   tags: [custom]
-
+{box_block}
 max_attempts: {max_attempts}
 
 target:
@@ -371,6 +381,7 @@ system_prompt: |
                 target_url = target_url,
                 task_type = task_type,
                 body_key = body_key,
+                box_block = box_block,
             )
         }
     };
@@ -426,8 +437,6 @@ pub async fn run_lab(
 
 #[derive(Deserialize, Default)]
 pub struct RunAllRequest {
-    /// اگه `None` باشه، همه‌ی لب‌ها اجرا می‌شن (رفتار قدیمی).
-    /// اگه `Some(indices)` باشه، فقط اون ایندکس‌ها اجرا می‌شن — به ترتیب.
     #[serde(default)]
     pub indices: Option<Vec<usize>>,
 }
@@ -439,6 +448,10 @@ pub async fn run_all(
     if app.ctx.run_lock.lock().unwrap().is_some() {
         return (StatusCode::CONFLICT, "a lab is already running").into_response();
     }
+
+    // ★ فلگ stale از Stop قبلی رو صفر کن. اینجا بی‌خطره چون هیچ labی
+    //    در حال اجرا نیست (چک بالا).
+    app.ctx.cancel.store(false, std::sync::atomic::Ordering::SeqCst);
 
     let labs_snapshot: Vec<Arc<Lab>> = app.labs.read().unwrap().clone();
 
@@ -465,9 +478,31 @@ pub async fn run_all(
     tokio::spawn(async move {
         for lab in selected.iter() {
             if ctx.cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                eprintln!("[STOP] run_all aborted before '{}'", lab.id());
                 break;
             }
-            runner::run_lab(&ctx, lab, &all_for_runner, None).await;
+
+            let mut acquired = false;
+            for _ in 0..600 {
+                if Lab::try_start(lab, &ctx.run_lock) {
+                    acquired = true;
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                if ctx.cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                    break;
+                }
+            }
+
+            if !acquired {
+                eprintln!(
+                    "⚠️  run_all: could not acquire run_lock for '{}' — aborting batch",
+                    lab.id()
+                );
+                break;
+            }
+
+            runner::run_locked(&ctx, lab, &all_for_runner, None).await;
         }
     });
 
@@ -486,7 +521,6 @@ pub async fn list_reports(
         labs[idx].id()
     };
 
-    //let dir = PathBuf::from("reports");
     let dir = &app.config.paths.reports_dir;
     let mut reports = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&dir) {
@@ -594,9 +628,6 @@ pub async fn set_provider(
     (StatusCode::OK, "switched").into_response()
 }
 
-/// علامت‌گذاری برای متوقف‌کردن اجرای فعلی. از پنل وب یا از هر جای دیگه
-/// صدا زده می‌شه. flag رو ست می‌کنه و فوراً برمی‌گرده؛ engine تو حلقه‌ی
-/// بعدی خودش متوقف می‌شه.
 pub async fn stop_lab(State(app): State<AppCtx>) -> impl IntoResponse {
     let running_id = app.ctx.run_lock.lock().unwrap().as_ref().map(|l| l.id());
     match running_id {
