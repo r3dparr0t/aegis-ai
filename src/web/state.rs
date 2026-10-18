@@ -124,6 +124,23 @@ impl EngineObserver for WebStateObserver {
                     if *success { "info" } else { "fail" },
                 );
             }
+            Event::BoxStarting { action, compose_dir } => {
+                s.push("🐳", format!("→ {} — {}", action, compose_dir), "state");
+            }
+            Event::BoxOutput { stream, line, .. } => {
+                // خطوط docker رو با truncate کوتاه نگه می‌داریم تا log شلوغ نشه
+                let truncated: String = line.chars().take(300).collect();
+                let icon = if stream == "stderr" { "⚠️" } else { "🐳" };
+                s.push(icon, truncated, "box");
+            }
+            Event::BoxFinished { action, success, .. } => {
+                let v = if *success { "✓" } else { "✗" };
+                s.push(
+                    "🐳",
+                    format!("{} {} finished", v, action),
+                    if *success { "state" } else { "fail" },
+                );
+            }
             Event::ServerUp { lab_id } => {
                 s.server_up.insert(lab_id.clone(), true);
                 s.push("🟢", format!("server up: {}", lab_id), "pass");

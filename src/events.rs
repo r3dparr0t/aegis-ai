@@ -2,7 +2,6 @@
 use std::sync::Arc;
 use crate::engine::state::ExecutionState;
 
-/// یک رخداد در طول اجرای engine. GUI و CLI هر دو می‌تونن از این subscribe کنن.
 #[derive(Clone, Debug)]
 pub enum Event {
     LabStarted { lab_id: String, lab_name: String, task_type: String },
@@ -20,29 +19,34 @@ pub enum Event {
     EvaluationFailed { category: String, detail: String },
     LessonSaved { id: String, text: String },
     Error {
-        context: &'static str,   // "llm" / "database" / "parse" / "execute" / "box" / "setup"
+        context: &'static str,
         message: String,
         fatal: bool,
     },
     State { transition: ExecutionState },
+
+    // ─── Docker/box lifecycle ───
     BoxUp      { compose_dir: String },
     BoxDown    { compose_dir: String },
-    /// setup_command شروع شد (قبل از اجرای `docker compose exec`)
+    /// شروع یک دستور docker (up / down / stop / exec ...)
+    BoxStarting { compose_dir: String, action: String },
+    /// یک خط خروجی از docker (stdout یا stderr). ANSI codes قبلاً strip شدن.
+    BoxOutput   { compose_dir: String, stream: String, line: String },
+    /// پایان دستور docker با success / exit code.
+    BoxFinished { compose_dir: String, action: String, success: bool },
+
     SetupCommandStarted  { service: String },
-    /// setup_command تموم شد — `success=false` یعنی exit code غیر صفر یا timeout.
-    /// `excerpt` خلاصهٔ stdout+stderr (حداکثر ۴۰۰ کاراکتر).
     SetupCommandFinished { service: String, success: bool, excerpt: String },
+
     ServerUp   { lab_id: String },
     ServerDown { lab_id: String, reason: String },
     LabSkipped { lab_id: String, reason: String },
 }
 
-/// هر کسی که می‌خواد eventها رو ببینه این trait رو پیاده می‌کنه.
 pub trait EngineObserver: Send + Sync {
     fn on_event(&self, event: Event);
 }
 
-/// پیاده‌سازی پیش‌فرض: همون رفتار قبلی، چاپ به stdout.
 pub struct ConsoleObserver;
 
 impl EngineObserver for ConsoleObserver {
@@ -59,15 +63,10 @@ impl EngineObserver for ConsoleObserver {
                 }
             }
             Event::HintsActive { messages, .. } => {
-                for m in &messages {
-                    println!("💡 Hint active: {}", m);
-                }
+                for m in &messages { println!("💡 Hint active: {}", m); }
             }
             Event::ModelFallback { attempt, from_model, to_model } => {
-                println!(
-                    "🔀 [Attempt {}] Falling back: {} → {}",
-                    attempt, from_model, to_model
-                );
+                println!("🔀 [Attempt {}] Falling back: {} → {}", attempt, from_model, to_model);
             }
             Event::LlmCalling => println!("🔷 [STATE] Generating (calling LLM provider)"),
             Event::LlmResponded { raw, .. } => println!("📝 Model raw output:\n{}", raw),
@@ -90,9 +89,7 @@ impl EngineObserver for ConsoleObserver {
                 let short: String = id.chars().take(8).collect();
                 println!("💾 Saved new lesson [{}]: {}", short, text);
             }
-            Event::LabStarted { lab_name, .. } => {
-                println!("\n=== 🧪 {} ===", lab_name);
-            }
+            Event::LabStarted { lab_name, .. } => println!("\n=== 🧪 {} ===", lab_name),
             Event::LabFinished { lab_name, success, attempts, .. } => {
                 let v = if success { "✅" } else { "❌" };
                 println!("{} [{}] finished after {} attempt(s)", v, lab_name, attempts);
@@ -102,8 +99,19 @@ impl EngineObserver for ConsoleObserver {
                 eprintln!("{} [{}] {}", tag, context, message);
             },
             Event::State { transition } => println!("🔷 [STATE] {}", transition),
-            Event::BoxUp { compose_dir } => println!("🐳 box up: {}", compose_dir),
+            Event::BoxUp { compose_dir }   => println!("🐳 box up: {}", compose_dir),
             Event::BoxDown { compose_dir } => println!("🐳 box down: {}", compose_dir),
+            Event::BoxStarting { action, compose_dir } => {
+                println!("🐳 → docker {} in {}", action, compose_dir);
+            }
+            Event::BoxOutput { stream, line, .. } => {
+                let prefix = if stream == "stderr" { "stderr" } else { "stdout" };
+                println!("   [{}] {}", prefix, line);
+            }
+            Event::BoxFinished { action, success, .. } => {
+                let v = if success { "✓" } else { "✗" };
+                println!("🐳 {} docker {} finished", v, action);
+            }
             Event::SetupCommandStarted { service } => {
                 println!("🔧 setup: running command in '{}'...", service);
             }

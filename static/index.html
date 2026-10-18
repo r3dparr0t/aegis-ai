@@ -15,7 +15,9 @@
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;overflow:hidden}
-  .app{display:grid;grid-template-columns:320px 1fr;height:100vh}
+
+  .app{display:flex;flex-direction:column;height:100vh}
+  .app-main{flex:1;display:grid;grid-template-columns:320px 1fr;min-height:0;overflow:hidden}
 
   .sidebar{background:var(--panel-2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
   .brand{padding:18px 22px 14px;border-bottom:1px solid var(--border)}
@@ -30,20 +32,13 @@
     flex:1;min-width:0;background:var(--panel-2);color:var(--text);
     border:1px solid var(--border-2);border-radius:6px;
     padding:7px 10px;font-size:12px;font-family:var(--mono);
-    appearance:none;
+    appearance:none;cursor:pointer;
     background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path fill='%238b98a9' d='M5 7L1 3h8z'/></svg>");
     background-repeat:no-repeat;background-position:right 8px center;padding-right:26px;
-    cursor:pointer;
   }
-  .model-row select:hover:not(:disabled){border-color:var(--text-dim)}
   .model-row select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(78,161,255,0.1)}
   .model-row select:disabled{opacity:0.5;cursor:not-allowed}
-  .model-apply{
-    background:var(--accent);border:1px solid var(--accent);color:white;
-    width:34px;flex-shrink:0;padding:0;border-radius:6px;cursor:pointer;
-    font-size:14px;display:flex;align-items:center;justify-content:center;
-    transition:all 0.1s;
-  }
+  .model-apply{background:var(--accent);border:1px solid var(--accent);color:white;width:34px;flex-shrink:0;padding:0;border-radius:6px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center}
   .model-apply:hover:not(:disabled){background:#5aabff}
   .model-apply:disabled{opacity:0.3;cursor:not-allowed}
   .model-hint{font-size:10px;color:var(--text-faint);margin-top:6px;line-height:1.4}
@@ -55,78 +50,20 @@
   .labs-header button{padding:4px 10px;font-size:11px;border-radius:5px}
   .labs-header button.icon-only{padding:4px 8px}
 
-  .search-sort-bar{
-    padding:8px 22px;
-    background:var(--panel-2);
-    border-bottom:1px solid var(--border);
-    display:flex;
-    gap:6px;
-    align-items:center;
-  }
-  .search-box{
-    flex:1;
-    position:relative;
-  }
-  .search-box input{
-    width:100%;
-    background:var(--panel);
-    color:var(--text);
-    border:1px solid var(--border);
-    border-radius:6px;
-    padding:6px 10px 6px 28px;
-    font-size:12px;
-    font-family:inherit;
-  }
-  .search-box input:focus{
-    outline:none;
-    border-color:var(--accent);
-    box-shadow:0 0 0 3px rgba(78,161,255,0.1);
-  }
+  .search-sort-bar{padding:8px 22px;background:var(--panel-2);border-bottom:1px solid var(--border);display:flex;gap:6px;align-items:center}
+  .search-box{flex:1;position:relative}
+  .search-box input{width:100%;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 10px 6px 28px;font-size:12px;font-family:inherit}
+  .search-box input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(78,161,255,0.1)}
   .search-box input::placeholder{color:var(--text-faint)}
-  .search-box .ico{
-    position:absolute;
-    left:8px;
-    top:50%;
-    transform:translateY(-50%);
-    font-size:11px;
-    color:var(--text-faint);
-    pointer-events:none;
-  }
-  .search-box .clear{
-    position:absolute;
-    right:6px;
-    top:50%;
-    transform:translateY(-50%);
-    background:transparent;
-    border:none;
-    color:var(--text-faint);
-    cursor:pointer;
-    padding:2px 4px;
-    font-size:14px;
-    line-height:1;
-    display:none;
-  }
+  .search-box .ico{position:absolute;left:8px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--text-faint);pointer-events:none}
+  .search-box .clear{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:var(--text-faint);cursor:pointer;padding:2px 4px;font-size:14px;line-height:1;display:none}
   .search-box.has-text .clear{display:block}
   .search-box .clear:hover{color:var(--text)}
 
   .sort-btns{display:flex;gap:2px;flex-shrink:0}
-  .sort-btns button{
-    background:transparent;
-    border:1px solid transparent;
-    color:var(--text-faint);
-    cursor:pointer;
-    padding:5px 7px;
-    border-radius:5px;
-    font-size:13px;
-    line-height:1;
-    transition:all 0.1s;
-  }
+  .sort-btns button{background:transparent;border:1px solid transparent;color:var(--text-faint);cursor:pointer;padding:5px 7px;border-radius:5px;font-size:13px;line-height:1;transition:all 0.1s}
   .sort-btns button:hover{color:var(--text);background:var(--panel)}
-  .sort-btns button.active{
-    background:var(--panel);
-    color:var(--accent);
-    border-color:var(--border-2);
-  }
+  .sort-btns button.active{background:var(--panel);color:var(--accent);border-color:var(--border-2)}
 
   .labs{flex:1;overflow-y:auto;padding:6px 0}
   .lab-item{padding:11px 22px;cursor:pointer;border-left:3px solid transparent;transition:background 0.1s;display:flex;gap:12px;align-items:flex-start}
@@ -144,18 +81,14 @@
   .lab-mini-bar{margin-top:8px;height:4px;background:var(--border);border-radius:2px;overflow:hidden}
   .lab-mini-fill{height:100%;transition:width 0.4s ease,background 0.4s ease;min-width:2px}
 
-  .lab-badge{
-    font-size:9px;padding:2px 6px;border-radius:8px;
-    font-weight:700;letter-spacing:0.3px;text-transform:uppercase;
-    margin-left:4px;display:inline-block;vertical-align:middle;
-  }
-  .lab-badge.down{background:var(--red);color:white;}
-  .lab-badge.setup{background:var(--yellow);color:#1a1a1a;}
-  .lab-badge.up{background:var(--green);color:white;opacity:0.7;}
+  .lab-badge{font-size:9px;padding:2px 6px;border-radius:8px;font-weight:700;letter-spacing:0.3px;text-transform:uppercase;margin-left:4px;display:inline-block;vertical-align:middle}
+  .lab-badge.down{background:var(--red);color:white}
+  .lab-badge.setup{background:var(--yellow);color:#1a1a1a}
+  .lab-badge.up{background:var(--green);color:white;opacity:0.7}
 
-  .no-results{padding:24px 20px;text-align:center;color:var(--text-faint);font-size:12px;font-style:italic;}
+  .no-results{padding:24px 20px;text-align:center;color:var(--text-faint);font-size:12px;font-style:italic}
 
-  .main{display:flex;flex-direction:column;overflow:hidden}
+  .main{display:flex;flex-direction:column;overflow:hidden;min-width:0}
   #main-content{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
   .main-header{padding:20px 32px;border-bottom:1px solid var(--border);background:var(--panel-2);display:flex;align-items:center;justify-content:space-between;gap:16px}
   .main-title h2{font-size:17px;font-weight:600;margin-bottom:3px}
@@ -235,50 +168,100 @@
   .welcome{flex:1;display:flex;align-items:center;justify-content:center;overflow-y:auto;padding:40px 20px}
   .welcome-inner{max-width:760px;width:100%;margin:auto 0}
   .welcome-hero{text-align:center;margin-bottom:36px}
-  .welcome-hero .shield{font-size:64px;line-height:1;display:inline-block;filter:drop-shadow(0 0 24px rgba(78,161,255,0.25));margin-bottom:16px;}
-  .welcome-hero h1{font-size:32px;font-weight:700;letter-spacing:6px;background:linear-gradient(135deg,#e6edf3 30%,#4ea1ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:8px;}
-  .welcome-hero .tagline{font-size:14px;color:var(--text-dim);max-width:560px;margin:0 auto;line-height:1.6;}
-  .welcome-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px;}
-  .stat-card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px 12px;text-align:center;transition:border-color 0.15s;}
+  .welcome-hero .shield{font-size:64px;line-height:1;display:inline-block;filter:drop-shadow(0 0 24px rgba(78,161,255,0.25));margin-bottom:16px}
+  .welcome-hero h1{font-size:32px;font-weight:700;letter-spacing:6px;background:linear-gradient(135deg,#e6edf3 30%,#4ea1ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:8px}
+  .welcome-hero .tagline{font-size:14px;color:var(--text-dim);max-width:560px;margin:0 auto;line-height:1.6}
+  .welcome-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px}
+  .stat-card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px 12px;text-align:center}
   .stat-card:hover{border-color:var(--border-2)}
-  .stat-card .num{font-family:var(--mono);font-size:26px;font-weight:700;line-height:1.1;margin-bottom:4px;}
-  .stat-card .label{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;font-weight:600;}
+  .stat-card .num{font-family:var(--mono);font-size:26px;font-weight:700;line-height:1.1;margin-bottom:4px}
+  .stat-card .label{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;font-weight:600}
   .stat-card.total .num{color:var(--text)}
   .stat-card.passed .num{color:var(--green)}
   .stat-card.failed .num{color:var(--red)}
   .stat-card.idle .num{color:var(--text-dim)}
   .welcome-section{margin-bottom:24px}
-  .welcome-section h3{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.2px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:10px;}
-  .welcome-section h3::after{content:'';flex:1;height:1px;background:var(--border);}
+  .welcome-section h3{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.2px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:10px}
+  .welcome-section h3::after{content:'';flex:1;height:1px;background:var(--border)}
   .welcome-list{list-style:none;display:flex;flex-direction:column;gap:8px}
-  .welcome-list li{display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--panel);border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--text-dim);transition:border-color 0.15s;}
+  .welcome-list li{display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--panel);border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--text-dim)}
   .welcome-list li:hover{border-color:var(--border-2);color:var(--text)}
-  .welcome-list .ico{font-size:16px;flex-shrink:0;width:22px;text-align:center;}
-  .welcome-list code{font-family:var(--mono);font-size:12px;background:var(--panel-2);padding:2px 6px;border-radius:4px;color:var(--accent);}
-  .welcome-config{display:flex;flex-wrap:wrap;gap:8px 20px;padding:14px 16px;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:var(--mono);color:var(--text-dim);}
+  .welcome-list .ico{font-size:16px;flex-shrink:0;width:22px;text-align:center}
+  .welcome-list code{font-family:var(--mono);font-size:12px;background:var(--panel-2);padding:2px 6px;border-radius:4px;color:var(--accent)}
+  .welcome-config{display:flex;flex-wrap:wrap;gap:8px 20px;padding:14px 16px;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:var(--mono);color:var(--text-dim)}
   .welcome-config .k{color:var(--text-faint)}
   .welcome-config .v{color:var(--text)}
-  .box-warning{padding:16px 18px;background:rgba(210,153,34,0.08);border:1px solid var(--yellow);border-radius:8px;font-size:13px;line-height:1.7;color:var(--text);}
-  .box-warning p{margin-bottom:8px;}
-  .box-warning p:last-child{margin-bottom:0;}
-  .box-warning strong{color:var(--yellow);}
-  .box-warning code{font-family:var(--mono);font-size:12px;background:var(--panel-2);padding:2px 6px;border-radius:4px;color:var(--accent);}
+  .box-warning{padding:16px 18px;background:rgba(210,153,34,0.08);border:1px solid var(--yellow);border-radius:8px;font-size:13px;line-height:1.7;color:var(--text)}
+  .box-warning p{margin-bottom:8px}
+  .box-warning p:last-child{margin-bottom:0}
+  .box-warning strong{color:var(--yellow)}
+  .box-warning code{font-family:var(--mono);font-size:12px;background:var(--panel-2);padding:2px 6px;border-radius:4px;color:var(--accent)}
 
   .toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;font-size:13px;font-weight:500;color:white;background:var(--green);opacity:0;transform:translateY(10px);transition:all 0.25s;pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:1000}
   .toast.show{opacity:1;transform:translateY(0)}
   .toast.err{background:var(--red)}
 
-  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:900;backdrop-filter:blur(2px);}
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:900;backdrop-filter:blur(2px)}
   .modal-overlay.hidden{display:none}
-  .modal{background:var(--panel);border:1px solid var(--border-2);border-radius:10px;padding:24px;min-width:440px;max-width:540px;box-shadow:0 20px 60px rgba(0,0,0,0.7);max-height:90vh;overflow-y:auto;}
+  .modal{background:var(--panel);border:1px solid var(--border-2);border-radius:10px;padding:24px;min-width:440px;max-width:540px;box-shadow:0 20px 60px rgba(0,0,0,0.7);max-height:90vh;overflow-y:auto}
   .modal h3{font-size:15px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
   .modal label{display:block;font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:6px;margin-top:12px}
-  .modal input,.modal select{width:100%;background:var(--panel-2);color:var(--text);border:1px solid var(--border-2);border-radius:6px;padding:8px 12px;font-size:13px;font-family:var(--mono);}
-  .modal select{appearance:none;cursor:pointer;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path fill='%238b98a9' d='M5 7L1 3h8z'/></svg>");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px;}
+  .modal input,.modal select{width:100%;background:var(--panel-2);color:var(--text);border:1px solid var(--border-2);border-radius:6px;padding:8px 12px;font-size:13px;font-family:var(--mono)}
+  .modal select{appearance:none;cursor:pointer;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path fill='%238b98a9' d='M5 7L1 3h8z'/></svg>");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px}
   .modal input:focus,.modal select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(78,161,255,0.1)}
   .modal .hint{font-size:11px;color:var(--text-faint);margin-top:4px;font-family:var(--mono)}
   .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
   .modal-error{color:var(--red);font-size:12px;margin-top:10px;font-family:var(--mono);min-height:18px}
+
+  /* ═══ Bottom console ═══ */
+  .bottom-console{
+    flex-shrink:0;
+    background:var(--panel-2);
+    border-top:1px solid var(--border);
+    display:flex;
+    flex-direction:column;
+    transition: height 0.2s ease;
+  }
+  .bottom-console.collapsed{height:38px}
+  .bottom-console.expanded{height:280px}
+  .console-header{
+    height:38px;
+    padding:0 20px;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    cursor:pointer;
+    background:var(--panel);
+    border-bottom:1px solid var(--border);
+    user-select:none;
+  }
+  .console-header:hover{background:var(--panel-2)}
+  .console-title{font-size:12px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;display:flex;align-items:center;gap:8px}
+  .console-status{font-size:11px;font-family:var(--mono);color:var(--text-faint);margin-left:auto}
+  .console-status.active{color:var(--yellow)}
+  .console-status.ok{color:var(--green)}
+  .console-status.err{color:var(--red)}
+  .console-toggle{font-size:11px;color:var(--text-faint);transition:transform 0.2s}
+  .bottom-console.expanded .console-toggle{transform:rotate(180deg)}
+  .console-body{
+    flex:1;
+    overflow-y:auto;
+    padding:10px 20px;
+    font-family:var(--mono);
+    font-size:11.5px;
+    line-height:1.6;
+    color:var(--text);
+    background:var(--bg);
+  }
+  .console-line{display:flex;gap:8px;padding:1px 0;white-space:pre-wrap;word-break:break-all}
+  .console-line .icon{flex-shrink:0;width:16px;text-align:center;font-size:11px}
+  .console-line .text{flex:1;color:var(--text-dim)}
+  .console-line.kind-state .text{color:var(--text)}
+  .console-line.kind-pass .text{color:var(--green)}
+  .console-line.kind-fail .text{color:var(--red)}
+  .console-line.kind-box .text{color:#a5d6ff}
+  .console-line.kind-info .text{color:var(--text-dim)}
+  .console-empty{color:var(--text-faint);font-style:italic;font-size:11px;padding:8px 0}
 
   ::-webkit-scrollbar{width:10px;height:10px}
   ::-webkit-scrollbar-track{background:var(--bg)}
@@ -288,109 +271,100 @@
 </head>
 <body>
 <div class="app">
-  <aside class="sidebar">
-    <div class="brand">
-      <h1>🛡 Aegis</h1>
-      <div class="sub">SSRF Fuzzing Engine</div>
-    </div>
-
-    <div class="model-box">
-      <div class="lbl">
-        <span>Model</span>
-        <span class="kind" id="provider-kind">—</span>
+  <div class="app-main">
+    <aside class="sidebar">
+      <div class="brand">
+        <h1>🛡 Aegis</h1>
+        <div class="sub">SSRF Fuzzing Engine</div>
       </div>
-      <div class="model-row">
-        <select id="model-select" disabled></select>
-        <button class="model-apply" id="model-apply" onclick="applyModel()" disabled title="Apply">✓</button>
-      </div>
-      <div class="model-hint" id="model-hint">Loading…</div>
-    </div>
 
-    <div class="labs-wrap">
-      <div class="labs-header">
-        <span class="lbl">Labs</span>
-        <div class="actions">
-          <button class="icon-only" onclick="reloadLabs()" id="reload-btn" title="Re-read labs/*.yaml from disk">🔄</button>
-          <button onclick="openNewLabModal()" title="Create a new lab">+ New</button>
-          <button onclick="runAll()" title="Run all visible labs sequentially">▶ Run all</button>
+      <div class="model-box">
+        <div class="lbl">
+          <span>Model</span>
+          <span class="kind" id="provider-kind">—</span>
         </div>
+        <div class="model-row">
+          <select id="model-select" disabled></select>
+          <button class="model-apply" id="model-apply" onclick="applyModel()" disabled title="Apply">✓</button>
+        </div>
+        <div class="model-hint" id="model-hint">Loading…</div>
       </div>
 
-      <div class="search-sort-bar">
-        <div class="search-box" id="search-box">
-          <span class="ico">🔍</span>
-          <input
-            id="search-input"
-            type="text"
-            placeholder="Filter labs…"
-            autocomplete="off"
-            oninput="onSearchInput()"
-          >
-          <button class="clear" onclick="clearSearch()" title="Clear">✕</button>
+      <div class="labs-wrap">
+        <div class="labs-header">
+          <span class="lbl">Labs</span>
+          <div class="actions">
+            <button class="icon-only" onclick="reloadLabs()" id="reload-btn" title="Re-read labs/*.yaml from disk">🔄</button>
+            <button onclick="openNewLabModal()" title="Create a new lab">+ New</button>
+            <button onclick="runAll()" title="Run all visible labs sequentially">▶ Run all</button>
+          </div>
         </div>
-        <div class="sort-btns">
-          <button id="sort-order" class="active" title="Default order (as declared in YAML)" onclick="setSort('order')">⇅</button>
-          <button id="sort-name" title="Sort by name (A→Z)" onclick="setSort('name')">A→Z</button>
-          <button id="sort-status" title="Sort by status (running, failed, cancelled, passed, untouched)" onclick="setSort('status')">●</button>
-        </div>
-      </div>
 
-      <div class="labs" id="lab-list"></div>
+        <div class="search-sort-bar">
+          <div class="search-box" id="search-box">
+            <span class="ico">🔍</span>
+            <input id="search-input" type="text" placeholder="Filter labs…" autocomplete="off" oninput="onSearchInput()">
+            <button class="clear" onclick="clearSearch()" title="Clear">✕</button>
+          </div>
+          <div class="sort-btns">
+            <button id="sort-order" class="active" title="Default order" onclick="setSort('order')">⇅</button>
+            <button id="sort-name" title="Sort by name" onclick="setSort('name')">A→Z</button>
+            <button id="sort-status" title="Sort by status" onclick="setSort('status')">●</button>
+          </div>
+        </div>
+
+        <div class="labs" id="lab-list"></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div id="main-content"></div>
+    </main>
+  </div>
+
+  <div class="bottom-console collapsed" id="bottom-console">
+    <div class="console-header" onclick="toggleConsole()">
+      <span class="console-title">🐳 Live console</span>
+      <span class="console-status" id="console-status">idle</span>
+      <span class="console-toggle" id="console-toggle">▲</span>
     </div>
-  </aside>
-
-  <main class="main">
-    <div id="main-content"></div>
-  </main>
+    <div class="console-body" id="console-body">
+      <div class="console-empty">Click header to expand. Log lines stream here while a lab is running.</div>
+    </div>
+  </div>
 </div>
 
 <div class="modal-overlay hidden" id="new-lab-modal">
   <div class="modal">
     <h3>➕ Create a new lab</h3>
-
     <label for="new-id">ID <span style="color:var(--red)">*</span></label>
     <input id="new-id" placeholder="cve_2021_41773_apache" autocomplete="off">
     <div class="hint">a-z, 0-9, _ and - only · must be unique</div>
-
     <label for="new-name">Name <span style="color:var(--red)">*</span></label>
     <input id="new-name" placeholder="CVE-2021-41773 — Apache path traversal" autocomplete="off">
-
     <label for="new-description">Description</label>
     <input id="new-description" placeholder="" autocomplete="off">
-
     <label for="new-kind">Kind</label>
     <select id="new-kind" onchange="onKindChange()">
       <option value="ssrf_json">SSRF JSON — POST JSON with endpoint + body</option>
-      <option value="raw">Raw HTTP — arbitrary method / path / body (for CVEs)</option>
+      <option value="raw">Raw HTTP — arbitrary method / path / body</option>
     </select>
-
     <label for="new-url">Target URL</label>
     <input id="new-url" value="http://localhost:5000/api/v1/fetch" autocomplete="off">
-
     <div id="field-body-key">
       <label for="new-body-key">Body key</label>
       <input id="new-body-key" value="url" autocomplete="off">
     </div>
-
     <div id="field-method" style="display:none">
       <label for="new-method">Default method</label>
-      <select id="new-method">
-        <option>POST</option>
-        <option>GET</option>
-        <option>PATCH</option>
-        <option>PUT</option>
-      </select>
+      <select id="new-method"><option>POST</option><option>GET</option><option>PATCH</option><option>PUT</option></select>
     </div>
-
     <label for="new-box">Box compose_dir (optional)</label>
     <input id="new-box" placeholder="~/vulhub-master/httpd/CVE-2021-41773" autocomplete="off">
     <div class="hint">absolute or ~/ path to docker-compose.yml folder</div>
-
     <label for="new-max">Max attempts</label>
     <input id="new-max" type="number" value="5" min="1" max="50">
-
     <div class="modal-error" id="modal-error"></div>
-
     <div class="modal-actions">
       <button onclick="closeNewLabModal()">Cancel</button>
       <button class="primary" onclick="submitNewLab()">Create</button>
@@ -407,13 +381,14 @@ let currentTab = 'overview';
 let currentReport = null;
 let currentReportRaw = null;
 let pollingTimer = null;
+let consolePollingTimer = null;
 let providerInfo = null;
 let selectedModel = null;
-
 let searchQuery = '';
 let sortMode = 'order';
-
 let stopRequested = false;
+let consoleExpanded = false;
+let consoleAutoScroll = true;
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
@@ -429,7 +404,7 @@ function toast(msg, isErr = false) {
 
 function fmtTime(ms) {
   if (!ms) return '—';
-  const now = Date.now(), diff = now - ms;
+  const diff = Date.now() - ms;
   if (diff < 60000) return 'just now';
   if (diff < 3600000) return `${Math.floor(diff/60000)}m ago`;
   if (diff < 86400000) return `${Math.floor(diff/3600000)}h ago`;
@@ -449,20 +424,14 @@ function stateLabel(s) {
   return s.kind;
 }
 
-const ATTEMPT_STOPS = [
-  [0.00,[ 63,185, 80]],[0.50,[210,153, 34]],[0.75,[248, 81, 73]],
-  [0.90,[139, 69, 19]],[1.00,[163,113,247]],
-];
+const ATTEMPT_STOPS = [[0,[63,185,80]],[0.5,[210,153,34]],[0.75,[248,81,73]],[0.9,[139,69,19]],[1,[163,113,247]]];
 function attemptColor(ratio) {
   ratio = Math.max(0, Math.min(1, ratio));
   for (let i = 0; i < ATTEMPT_STOPS.length - 1; i++) {
     const [r0,c0] = ATTEMPT_STOPS[i], [r1,c1] = ATTEMPT_STOPS[i+1];
     if (ratio >= r0 && ratio <= r1) {
       const t = (r1 === r0) ? 0 : (ratio - r0) / (r1 - r0);
-      const r = Math.round(c0[0] + (c1[0]-c0[0])*t);
-      const g = Math.round(c0[1] + (c1[1]-c0[1])*t);
-      const b = Math.round(c0[2] + (c1[2]-c0[2])*t);
-      return `rgb(${r},${g},${b})`;
+      return `rgb(${Math.round(c0[0]+(c1[0]-c0[0])*t)},${Math.round(c0[1]+(c1[1]-c0[1])*t)},${Math.round(c0[2]+(c1[2]-c0[2])*t)})`;
     }
   }
   return 'rgb(163,113,247)';
@@ -481,34 +450,89 @@ function attemptsUsed(status) {
   return 0;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// Search + Sort
-// ═══════════════════════════════════════════════════════════════
+// ─── Console ───
+function toggleConsole() {
+  consoleExpanded = !consoleExpanded;
+  const el = $('bottom-console');
+  el.classList.toggle('collapsed', !consoleExpanded);
+  el.classList.toggle('expanded', consoleExpanded);
+  $('console-toggle').textContent = consoleExpanded ? '▲' : '▲';
+  if (consoleExpanded) {
+    refreshConsole();
+    if (!consolePollingTimer) {
+      consolePollingTimer = setInterval(refreshConsole, 1000);
+    }
+  } else {
+    if (consolePollingTimer) { clearInterval(consolePollingTimer); consolePollingTimer = null; }
+  }
+}
+
+async function refreshConsole() {
+  try {
+    const r = await fetch('/api/log');
+    const lines = await r.json();
+    renderConsole(lines);
+    updateConsoleStatus(lines);
+  } catch (e) {}
+}
+
+function updateConsoleStatus(lines) {
+  const last = lines[lines.length - 1];
+  const el = $('console-status');
+  if (!el) return;
+  if (!last) { el.textContent = 'idle'; el.className = 'console-status'; return; }
+  const isRunning = labs.some(l => l.status?.kind === 'running');
+  if (isRunning) {
+    el.textContent = `${lines.length} lines · running`;
+    el.className = 'console-status active';
+  } else {
+    el.textContent = `${lines.length} lines`;
+    el.className = 'console-status';
+  }
+}
+
+function renderConsole(lines) {
+  const body = $('console-body');
+  if (!body) return;
+
+  // ذخیره scroll position قبل از re-render
+  const wasAtBottom = body.scrollTop + body.clientHeight >= body.scrollHeight - 20;
+
+  if (!lines || !lines.length) {
+    body.innerHTML = '<div class="console-empty">No log lines yet.</div>';
+    return;
+  }
+
+  body.innerHTML = lines.map(l => {
+    const cls = `console-line kind-${esc(l.kind || 'info')}`;
+    return `<div class="${cls}"><span class="icon">${esc(l.icon || '·')}</span><span class="text">${esc(l.text || '')}</span></div>`;
+  }).join('');
+
+  if (wasAtBottom || consoleAutoScroll) {
+    body.scrollTop = body.scrollHeight;
+  }
+}
+
+// ─── Search + sort ───
 function onSearchInput() {
   const v = $('search-input').value;
   searchQuery = v.trim().toLowerCase();
   $('search-box').classList.toggle('has-text', v.length > 0);
   renderLabList();
 }
-
 function clearSearch() {
   $('search-input').value = '';
   searchQuery = '';
   $('search-box').classList.remove('has-text');
   renderLabList();
 }
-
 function setSort(mode) {
   sortMode = mode;
-  ['order','name','status'].forEach(m => {
-    $('sort-' + m).classList.toggle('active', m === mode);
-  });
+  ['order','name','status'].forEach(m => $('sort-' + m).classList.toggle('active', m === mode));
   renderLabList();
 }
-
 function visibleLabs() {
   let list = labs.slice();
-
   if (searchQuery) {
     list = list.filter(l =>
       (l.id || '').toLowerCase().includes(searchQuery) ||
@@ -516,10 +540,8 @@ function visibleLabs() {
       (l.description || '').toLowerCase().includes(searchQuery)
     );
   }
-
-  if (sortMode === 'name') {
-    list.sort((a,b) => (a.name || '').localeCompare(b.name || ''));
-  } else if (sortMode === 'status') {
+  if (sortMode === 'name') list.sort((a,b) => (a.name || '').localeCompare(b.name || ''));
+  else if (sortMode === 'status') {
     const rank = s => {
       const k = s?.kind || 'untouched';
       if (k === 'running')   return 0;
@@ -530,13 +552,10 @@ function visibleLabs() {
     };
     list.sort((a,b) => rank(a.status) - rank(b.status));
   }
-
   return list;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// Reload from disk
-// ═══════════════════════════════════════════════════════════════
+// ─── Reload ───
 async function reloadLabs() {
   const btn = $('reload-btn');
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
@@ -544,39 +563,27 @@ async function reloadLabs() {
     const r = await fetch('/api/labs/reload', { method: 'POST' });
     if (r.ok) {
       const data = await r.json();
-      toast(`Reloaded ${data.count} lab(s) from disk`);
-      // اگه lab فعلی دیگه وجود نداره، برو home
+      toast(`Reloaded ${data.count} lab(s)`);
       await loadLabs();
-      if (currentIdx !== null && !labs[currentIdx]) {
-        goHome();
-      } else if (currentIdx !== null) {
-        await renderMain();
-      }
+      if (currentIdx !== null && !labs[currentIdx]) goHome();
+      else if (currentIdx !== null) await renderMain();
     } else {
-      const err = await r.text();
-      toast(err.slice(0, 100) || 'Reload failed', true);
+      toast((await r.text()).slice(0, 100) || 'Reload failed', true);
     }
-  } catch (e) {
-    toast('Network error', true);
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '🔄'; }
-  }
+  } catch (e) { toast('Network error', true); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = '🔄'; } }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// Welcome
-// ═══════════════════════════════════════════════════════════════
+// ─── Welcome ───
 function renderWelcome() {
   const el = $('main-content');
   if (!el) return;
-
-  const total   = labs.length;
-  const passed  = labs.filter(l => l.status?.kind === 'passed').length;
-  const failed  = labs.filter(l => l.status?.kind === 'failed').length;
-  const idle    = labs.filter(l => !l.status || l.status.kind === 'untouched').length;
-
+  const total  = labs.length;
+  const passed = labs.filter(l => l.status?.kind === 'passed').length;
+  const failed = labs.filter(l => l.status?.kind === 'failed').length;
+  const idle   = labs.filter(l => !l.status || l.status.kind === 'untouched').length;
   const modelName = providerInfo?.model || '—';
-  const modelKind = providerInfo?.kind  || '—';
+  const modelKind = providerInfo?.kind || '—';
   const providerUrl = providerInfo?.base_url || '—';
 
   el.innerHTML = `
@@ -585,42 +592,32 @@ function renderWelcome() {
         <div class="welcome-hero">
           <div class="shield">🛡</div>
           <h1>AEGIS</h1>
-          <div class="tagline">
-            A self-correcting LLM agent for web security fuzzing.
-            Plans, executes, evaluates against a real target, and refines
-            its strategy — attempt after attempt — until it succeeds.
-          </div>
+          <div class="tagline">A self-correcting LLM agent for web security fuzzing. Plans, executes, evaluates, and refines — attempt after attempt.</div>
         </div>
-
         <div class="welcome-stats">
           <div class="stat-card total"><div class="num">${total}</div><div class="label">Labs</div></div>
           <div class="stat-card passed"><div class="num">${passed}</div><div class="label">Passed</div></div>
           <div class="stat-card failed"><div class="num">${failed}</div><div class="label">Failed</div></div>
           <div class="stat-card idle"><div class="num">${idle}</div><div class="label">Untouched</div></div>
         </div>
-
         <div class="welcome-section">
           <h3>⚠️ Box targets</h3>
           <div class="box-warning">
-            <p>Each lab declares its own target in <code>labs/*.yaml</code> under the <code>box.compose_dir</code> field.</p>
-            <p><strong>SSRF labs:</strong> use the bundled <code>boxes/ssrf</code> (already in this project).</p>
-            <p><strong>CVE labs:</strong> point <code>box.compose_dir</code> at your own vulhub clone. Clone it with: <code>git clone https://github.com/vulhub/vulhub ~/vulhub-master</code></p>
-            <p>Before each run, Aegis checks whether the target is up. If down and a box path is set, it starts the box. If still down, fuzzing is skipped — nothing is added to the report.</p>
+            <p>Each lab declares its own target in <code>labs/*.yaml</code> under <code>box.compose_dir</code>.</p>
+            <p><strong>SSRF labs:</strong> use bundled <code>boxes/ssrf</code>.</p>
+            <p><strong>CVE labs:</strong> point <code>box.compose_dir</code> at your vulhub clone: <code>git clone https://github.com/vulhub/vulhub ~/vulhub-master</code></p>
+            <p>Watch the <strong>Live console</strong> at the bottom to see docker output in real time.</p>
           </div>
         </div>
-
         <div class="welcome-section">
           <h3>Quick start</h3>
           <ul class="welcome-list">
-            <li><span class="ico">🔄</span><span>Click <code>🔄</code> to re-read <code>labs/*.yaml</code> from disk without restarting.</span></li>
-            <li><span class="ico">🔍</span><span>Filter labs with the search box; sort with the icon buttons.</span></li>
-            <li><span class="ico">▶</span><span>Run one with <code>▶ Run</code> — or all visible with <code>▶ Run all</code>.</span></li>
-            <li><span class="ico">■</span><span>While running, hit <code>■ Stop</code> to cancel cleanly.</span></li>
-            <li><span class="ico">📝</span><span>Edit a lab's <code>YAML</code> and save; changes apply immediately.</span></li>
-            <li><span class="ico">📄</span><span>Each run produces a report under the <code>Reports</code> tab.</span></li>
+            <li><span class="ico">🐳</span><span>Click the <strong>Live console</strong> at the bottom to see docker output while it runs.</span></li>
+            <li><span class="ico">🔄</span><span>Reload labs from disk without restarting.</span></li>
+            <li><span class="ico">▶</span><span>Run one or all; <code>■ Stop</code> cancels cleanly.</span></li>
+            <li><span class="ico">📄</span><span>Each run produces a report under the Reports tab.</span></li>
           </ul>
         </div>
-
         <div class="welcome-section">
           <h3>Configuration</h3>
           <div class="welcome-config">
@@ -630,74 +627,43 @@ function renderWelcome() {
           </div>
         </div>
       </div>
-    </div>
-  `;
+    </div>`;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// Labs
-// ═══════════════════════════════════════════════════════════════
+// ─── Labs ───
 async function loadLabs() {
   try {
     const r = await fetch('/api/labs');
     labs = await r.json();
     renderLabList();
-
-    if (stopRequested && currentIdx !== null && labs[currentIdx]) {
-      const k = labs[currentIdx].status?.kind;
-      if (k !== 'running') resetStopBtn();
-    }
-    if (stopRequested && !labs.some(l => l.status?.kind === 'running')) {
-      resetStopBtn();
-    }
-
-    if (currentIdx !== null && labs[currentIdx]) {
-      updateHeaderStatus();
-    } else if (currentIdx === null) {
-      if (document.querySelector('.welcome')) renderWelcome();
-    }
+    if (stopRequested && currentIdx !== null && labs[currentIdx]?.status?.kind !== 'running') resetStopBtn();
+    if (stopRequested && !labs.some(l => l.status?.kind === 'running')) resetStopBtn();
+    if (currentIdx !== null && labs[currentIdx]) updateHeaderStatus();
+    else if (currentIdx === null && document.querySelector('.welcome')) renderWelcome();
   } catch (e) { console.error(e); }
 }
 
 function renderLabList() {
   const el = $('lab-list');
   const list = visibleLabs();
-
-  if (!labs.length) {
-    el.innerHTML = '<div class="empty" style="padding:20px"><div class="msg">No labs loaded</div></div>';
-    return;
-  }
-  if (!list.length) {
-    el.innerHTML = `<div class="no-results">No labs match "${esc(searchQuery)}"</div>`;
-    return;
-  }
-
+  if (!labs.length) { el.innerHTML = '<div class="empty" style="padding:20px"><div class="msg">No labs loaded</div></div>'; return; }
+  if (!list.length) { el.innerHTML = `<div class="no-results">No labs match "${esc(searchQuery)}"</div>`; return; }
   el.innerHTML = list.map(l => {
     const cls = stateClass(l.status);
-    const badge = stateLabel(l.status);
     const ratio = attemptRatio(l.status, l.max_attempts);
-    const color = attemptColor(ratio);
     const hasRun = l.status && l.status.kind !== 'untouched';
-    const fillStyle = hasRun ? `width:${(ratio*100).toFixed(1)}%;background:${color};` : 'width:0%';
-
-    let serverBadge = '';
-    if (l.server_up === true) {
-      serverBadge = `<span class="lab-badge up">🟢 up</span>`;
-    } else if (l.server_up === false) {
-      serverBadge = `<span class="lab-badge down">🔴 down</span>`;
-    } else if (l.setup_note) {
-      serverBadge = `<span class="lab-badge setup">🟡 setup</span>`;
-    }
-
-    return `
-      <div class="lab-item ${currentIdx === l.index ? 'active' : ''}" onclick="openLab(${l.index})">
-        <div class="lab-dot ${cls}"></div>
-        <div class="lab-info">
-          <div class="lab-name">${esc(l.name)}${serverBadge}</div>
-          <div class="lab-meta">${esc(badge)}</div>
-          <div class="lab-mini-bar"><div class="lab-mini-fill" style="${fillStyle}"></div></div>
-        </div>
-      </div>`;
+    const fillStyle = hasRun ? `width:${(ratio*100).toFixed(1)}%;background:${attemptColor(ratio)};` : 'width:0%';
+    let badge = '';
+    if (l.server_up === true) badge = `<span class="lab-badge up">🟢 up</span>`;
+    else if (l.server_up === false) badge = `<span class="lab-badge down">🔴 down</span>`;
+    else if (l.setup_note) badge = `<span class="lab-badge setup">🟡 setup</span>`;
+    return `<div class="lab-item ${currentIdx === l.index ? 'active' : ''}" onclick="openLab(${l.index})">
+      <div class="lab-dot ${cls}"></div>
+      <div class="lab-info">
+        <div class="lab-name">${esc(l.name)}${badge}</div>
+        <div class="lab-meta">${esc(stateLabel(l.status))}</div>
+        <div class="lab-mini-bar"><div class="lab-mini-fill" style="${fillStyle}"></div></div>
+      </div></div>`;
   }).join('');
 }
 
@@ -706,30 +672,20 @@ function updateHeaderStatus() {
   if (!lab) return;
   const badge = $('header-badge');
   if (badge) {
-    const cls = stateClass(lab.status);
-    badge.className = 'status-badge ' + cls;
+    badge.className = 'status-badge ' + stateClass(lab.status);
     badge.innerHTML = `<span class="dot"></span>${esc(stateLabel(lab.status))}`;
   }
-  const running = lab.status && lab.status.kind === 'running';
-
+  const running = lab.status?.kind === 'running';
   const runBtn = $('run-btn');
-  if (runBtn) {
-    runBtn.disabled = running;
-    runBtn.innerHTML = running ? '⏳ Running...' : '▶ Run';
-  }
+  if (runBtn) { runBtn.disabled = running; runBtn.innerHTML = running ? '⏳ Running...' : '▶ Run'; }
   const stopBtn = $('stop-btn');
   if (stopBtn) {
     stopBtn.style.display = running ? 'inline-flex' : 'none';
-    if (!running && !stopRequested) {
-      stopBtn.disabled = false;
-      stopBtn.innerHTML = '■ Stop';
-    }
+    if (!running && !stopRequested) { stopBtn.disabled = false; stopBtn.innerHTML = '■ Stop'; }
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// Provider / Model
-// ═══════════════════════════════════════════════════════════════
+// ─── Provider ───
 async function loadProvider() {
   try {
     const r = await fetch('/api/provider');
@@ -741,9 +697,7 @@ async function loadProvider() {
       const mr = await fetch('/api/models');
       const data = await mr.json();
       const models = data.models || [];
-      sel.innerHTML = models.map(m =>
-        `<option value="${esc(m)}" ${m === providerInfo.model ? 'selected' : ''}>${esc(m)}</option>`
-      ).join('');
+      sel.innerHTML = models.map(m => `<option value="${esc(m)}" ${m === providerInfo.model ? 'selected' : ''}>${esc(m)}</option>`).join('');
       if (!models.length) sel.innerHTML = `<option>${esc(providerInfo.model||'—')}</option>`;
       sel.disabled = false;
       updateApplyBtn();
@@ -755,27 +709,19 @@ async function loadProvider() {
       $('model-hint').textContent = 'live switching only for Ollama';
     }
     if (document.querySelector('.welcome')) renderWelcome();
-  } catch (e) {
-    $('model-hint').textContent = 'failed to load provider';
-  }
+  } catch (e) { $('model-hint').textContent = 'failed to load provider'; }
 }
-
 function updateApplyBtn() {
-  const running = labs.some(l => l.status && l.status.kind === 'running');
+  const running = labs.some(l => l.status?.kind === 'running');
   const changed = selectedModel && providerInfo && selectedModel !== providerInfo.model;
   const btn = $('model-apply');
   if (!btn) return;
   btn.disabled = running || !changed || providerInfo?.kind !== 'ollama';
 }
-
 document.addEventListener('DOMContentLoaded', () => {
   const sel = $('model-select');
-  if (sel) sel.addEventListener('change', (e) => {
-    selectedModel = e.target.value;
-    updateApplyBtn();
-  });
+  if (sel) sel.addEventListener('change', (e) => { selectedModel = e.target.value; updateApplyBtn(); });
 });
-
 async function applyModel() {
   if (!selectedModel) return;
   const r = await fetch('/api/provider', {
@@ -784,103 +730,62 @@ async function applyModel() {
     body: JSON.stringify({ model: selectedModel }),
   });
   if (r.ok) { toast('Model switched'); await loadProvider(); }
-  else {
-    const err = await r.text();
-    toast(err.slice(0, 80), true);
-  }
+  else toast((await r.text()).slice(0, 80), true);
 }
 
 async function runAll() {
   const visible = visibleLabs();
-  if (!visible.length) {
-    toast('No labs to run', true);
-    return;
-  }
+  if (!visible.length) { toast('No labs to run', true); return; }
   const indices = visible.map(l => l.index);
-
   try {
     const r = await fetch('/api/run-all', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ indices }),
     });
-    if (r.ok) {
-      toast(`Running ${indices.length} lab(s)`);
-      startPolling();
-    } else if (r.status === 409) {
-      toast('Another lab is already running — stop it first', true);
-    } else {
-      const err = await r.text();
-      toast(err.slice(0, 100) || 'Failed to start', true);
-    }
-  } catch (e) {
-    toast('Network error', true);
-  }
+    if (r.ok) { toast(`Running ${indices.length} lab(s)`); startPolling(); }
+    else if (r.status === 409) toast('Another lab is already running — stop it first', true);
+    else toast((await r.text()).slice(0, 100) || 'Failed to start', true);
+  } catch (e) { toast('Network error', true); }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// New Lab Modal
-// ═══════════════════════════════════════════════════════════════
+// ─── New Lab Modal ───
 function onKindChange() {
-  const kind = $('new-kind').value;
-  const isRaw = kind === 'raw';
+  const isRaw = $('new-kind').value === 'raw';
   $('field-body-key').style.display = isRaw ? 'none' : 'block';
   $('field-method').style.display = isRaw ? 'block' : 'none';
   const urlField = $('new-url');
-  if (isRaw && urlField.value === 'http://localhost:5000/api/v1/fetch') {
-    urlField.value = 'http://localhost:8080';
-  } else if (!isRaw && urlField.value === 'http://localhost:8080') {
-    urlField.value = 'http://localhost:5000/api/v1/fetch';
-  }
+  if (isRaw && urlField.value === 'http://localhost:5000/api/v1/fetch') urlField.value = 'http://localhost:8080';
+  else if (!isRaw && urlField.value === 'http://localhost:8080') urlField.value = 'http://localhost:5000/api/v1/fetch';
 }
-
 function openNewLabModal() {
-  $('new-id').value = '';
-  $('new-name').value = '';
-  $('new-description').value = '';
-  $('new-kind').value = 'ssrf_json';
-  $('new-url').value = 'http://localhost:5000/api/v1/fetch';
-  $('new-body-key').value = 'url';
-  $('new-method').value = 'POST';
-  $('new-box').value = '';
-  $('new-max').value = '5';
+  $('new-id').value = ''; $('new-name').value = ''; $('new-description').value = '';
+  $('new-kind').value = 'ssrf_json'; $('new-url').value = 'http://localhost:5000/api/v1/fetch';
+  $('new-body-key').value = 'url'; $('new-method').value = 'POST';
+  $('new-box').value = ''; $('new-max').value = '5';
   $('modal-error').textContent = '';
   onKindChange();
   $('new-lab-modal').classList.remove('hidden');
   setTimeout(() => $('new-id').focus(), 50);
 }
-
-function closeNewLabModal() {
-  $('new-lab-modal').classList.add('hidden');
-}
-
+function closeNewLabModal() { $('new-lab-modal').classList.add('hidden'); }
 async function submitNewLab() {
   const kind = $('new-kind').value;
   const body = {
     id: $('new-id').value.trim().toLowerCase(),
     name: $('new-name').value.trim(),
     description: $('new-description').value.trim(),
-    kind: kind,
-    target_url: $('new-url').value.trim(),
+    kind, target_url: $('new-url').value.trim(),
     max_attempts: parseInt($('new-max').value) || 5,
     box_dir: $('new-box').value.trim(),
   };
   if (kind === 'ssrf_json') body.body_key = $('new-body-key').value.trim() || 'url';
   if (kind === 'raw') body.method = $('new-method').value;
-
   if (!body.id) { $('modal-error').textContent = 'ID is required'; return; }
-  if (!/^[a-z0-9_-]+$/.test(body.id)) {
-    $('modal-error').textContent = 'ID must be lowercase a-z, 0-9, _ or - only';
-    return;
-  }
+  if (!/^[a-z0-9_-]+$/.test(body.id)) { $('modal-error').textContent = 'ID must be lowercase a-z, 0-9, _ or -'; return; }
   if (!body.name) { $('modal-error').textContent = 'Name is required'; return; }
-  if (labs.some(l => l.id === body.id)) {
-    $('modal-error').textContent = `Lab '${body.id}' already exists`;
-    return;
-  }
-
+  if (labs.some(l => l.id === body.id)) { $('modal-error').textContent = `Lab '${body.id}' already exists`; return; }
   $('modal-error').textContent = 'creating...';
-
   try {
     const r = await fetch('/api/lab/new', {
       method: 'POST',
@@ -893,54 +798,37 @@ async function submitNewLab() {
       toast('Lab created: ' + data.id);
       await loadLabs();
       if (typeof data.index === 'number') await openLab(data.index);
-    } else {
-      const err = await r.text();
-      $('modal-error').textContent = err.slice(0, 120);
-    }
-  } catch (e) {
-    $('modal-error').textContent = 'network error';
-  }
+    } else $('modal-error').textContent = (await r.text()).slice(0, 120);
+  } catch (e) { $('modal-error').textContent = 'network error'; }
 }
-
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !$('new-lab-modal').classList.contains('hidden')) {
-    closeNewLabModal();
-  }
+  if (e.key === 'Escape' && !$('new-lab-modal').classList.contains('hidden')) closeNewLabModal();
 });
 
-// ═══════════════════════════════════════════════════════════════
-// Open Lab
-// ═══════════════════════════════════════════════════════════════
+// ─── Open / Tabs ───
 async function openLab(idx) {
   currentIdx = idx;
   currentTab = 'overview';
-  currentReport = null;
-  currentReportRaw = null;
+  currentReport = null; currentReportRaw = null;
   renderLabList();
   await renderMain();
 }
-
 function goHome() {
-  currentIdx = null;
-  currentReport = null;
-  currentReportRaw = null;
+  currentIdx = null; currentReport = null; currentReportRaw = null;
   renderLabList();
   renderWelcome();
 }
-
 async function renderMain() {
   if (currentIdx === null) { renderWelcome(); return; }
   const lab = labs[currentIdx];
   if (!lab) { renderWelcome(); return; }
-  const cls = stateClass(lab.status);
-
   $('main-content').innerHTML = `
     <div class="main-header">
       <div class="main-title">
         <h2>${esc(lab.name)}</h2>
         <div class="sub">${esc(lab.url)}</div>
       </div>
-      <div class="status-badge ${cls}" id="header-badge">
+      <div class="status-badge ${stateClass(lab.status)}" id="header-badge">
         <span class="dot"></span>${esc(stateLabel(lab.status))}
       </div>
     </div>
@@ -954,24 +842,17 @@ async function renderMain() {
       <button class="stop" id="stop-btn" onclick="stopCurrent()" style="display:none">■ Stop</button>
       <button onclick="switchTab('yaml')">📝 Edit YAML</button>
       <button onclick="switchTab('reports')">📄 Reports</button>
-      <button onclick="goHome()" title="Back to welcome screen">⌂ Home</button>
+      <button onclick="goHome()">⌂ Home</button>
     </div>
-    <div class="tab-content" id="tab-body"></div>
-  `;
+    <div class="tab-content" id="tab-body"></div>`;
   updateHeaderStatus();
   await renderTabBody();
 }
-
 function switchTab(name) {
-  currentTab = name;
-  currentReport = null;
-  currentReportRaw = null;
-  document.querySelectorAll('.tab').forEach((t,i) => {
-    t.classList.toggle('active', ['overview','yaml','reports'][i] === name);
-  });
+  currentTab = name; currentReport = null; currentReportRaw = null;
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['overview','yaml','reports'][i] === name));
   renderTabBody();
 }
-
 async function renderTabBody() {
   const el = $('tab-body');
   if (!el) return;
@@ -983,60 +864,14 @@ async function renderTabBody() {
     const ratio = maxA > 0 ? (used/maxA) : 0;
     const pct = (ratio*100).toFixed(0);
     const color = attemptColor(ratio);
-
-    let note = '';
     const kind = lab.status?.kind || 'untouched';
-    if (kind === 'untouched') {
-      note = 'Not run yet.';
-    } else if (kind === 'passed') {
-      note = used <= Math.ceil(maxA/2)
-        ? '✅ Solved within the first half of the budget.'
-        : '✅ Solved, but late — needed most of the budget.';
-    } else if (kind === 'failed') {
-      note = '❌ Failed — budget exhausted.';
-    } else if (kind === 'cancelled') {
-      note = '■ Cancelled by user — not a failure. Run again when ready.';
-    } else {
-      note = `⏳ In progress... attempt ${used} of ${maxA}.`;
-    }
-
-    let serverNoteHTML = '';
-    if (lab.server_up === false) {
-      serverNoteHTML = `
-        <div class="info-card" style="border-color:var(--red);background:rgba(248,81,73,0.05);margin-bottom:16px">
-          <h3 style="color:var(--red)">🔴 Server not reachable</h3>
-          <div class="info-row"><span class="v plain">Last preflight check failed. Fuzzing was skipped. Bring the target up manually, or verify the <code>box.compose_dir</code> path in this lab's YAML.</span></div>
-        </div>`;
-    } else if (lab.server_up === true) {
-      serverNoteHTML = `
-        <div class="info-card" style="border-color:var(--green);background:rgba(63,185,80,0.05);margin-bottom:16px">
-          <h3 style="color:var(--green)">🟢 Server reachable</h3>
-          <div class="info-row"><span class="v plain">The target responded to the last preflight check.</span></div>
-        </div>`;
-    }
-
-    let setupNoteHTML = '';
-    if (lab.setup_note) {
-      setupNoteHTML = `
-        <div class="info-card" style="border-color:var(--yellow);background:rgba(210,153,34,0.05);margin-bottom:16px">
-          <h3 style="color:var(--yellow)">⚠️ Manual setup required</h3>
-          <div class="info-row"><span class="v plain">${esc(lab.setup_note)}</span></div>
-        </div>`;
-    }
-
-    let cancelledNoteHTML = '';
-    if (kind === 'cancelled') {
-      cancelledNoteHTML = `
-        <div class="info-card" style="border-color:var(--gray);background:rgba(110,118,129,0.05);margin-bottom:16px">
-          <h3 style="color:var(--text-dim)">■ Last run cancelled</h3>
-          <div class="info-row"><span class="v plain">Stopped by user before completing. The container was cleaned up, and no report was written for that run.</span></div>
-        </div>`;
-    }
+    let note = 'Not run yet.';
+    if (kind === 'passed') note = used <= Math.ceil(maxA/2) ? '✅ Solved within the first half of the budget.' : '✅ Solved, but late.';
+    else if (kind === 'failed') note = '❌ Failed — budget exhausted.';
+    else if (kind === 'cancelled') note = '■ Cancelled by user.';
+    else if (kind === 'running') note = `⏳ In progress... attempt ${used} of ${maxA}.`;
 
     el.innerHTML = `
-      ${serverNoteHTML}
-      ${setupNoteHTML}
-      ${cancelledNoteHTML}
       <div class="info-grid">
         <div class="info-card">
           <div class="attempt-head">
@@ -1044,17 +879,8 @@ async function renderTabBody() {
             <span class="pct" style="color:${color}">${pct}%</span>
           </div>
           <div class="attempt-hbar">
-            <div class="attempt-hbar-track">
-              <div class="attempt-hbar-fill" style="width:${pct}%;background:${color};"></div>
-            </div>
+            <div class="attempt-hbar-track"><div class="attempt-hbar-fill" style="width:${pct}%;background:${color};"></div></div>
             <div class="attempt-hbar-value">${used}<span class="of"> / ${maxA}</span></div>
-          </div>
-          <div class="attempt-legend">
-            <span class="stop"><span class="swatch" style="background:${attemptColor(0)}"></span>0%</span>
-            <span class="stop"><span class="swatch" style="background:${attemptColor(0.5)}"></span>50%</span>
-            <span class="stop"><span class="swatch" style="background:${attemptColor(0.75)}"></span>75%</span>
-            <span class="stop"><span class="swatch" style="background:${attemptColor(0.9)}"></span>90%</span>
-            <span class="stop"><span class="swatch" style="background:${attemptColor(1)}"></span>100%</span>
           </div>
           <div class="attempt-note">${esc(note)}</div>
         </div>
@@ -1064,11 +890,7 @@ async function renderTabBody() {
           ${lab.target ? `<div class="info-row"><span class="k">Internal target</span><span class="v">${esc(lab.target)}</span></div>` : ''}
           <div class="info-row"><span class="k">Max attempts</span><span class="v">${maxA}</span></div>
         </div>
-        ${lab.description ? `
-        <div class="info-card">
-          <h3>Description</h3>
-          <div class="info-row"><span class="v plain">${esc(lab.description)}</span></div>
-        </div>` : ''}
+        ${lab.description ? `<div class="info-card"><h3>Description</h3><div class="info-row"><span class="v plain">${esc(lab.description)}</span></div></div>` : ''}
       </div>`;
     return;
   }
@@ -1083,7 +905,6 @@ async function renderTabBody() {
           <span class="editor-status" id="yaml-status"></span>
         </div>
         <textarea class="yaml-editor" id="yaml-editor" spellcheck="false"></textarea>
-        <div class="editor-hint">Changing <code>meta.id</code> renames the YAML file on disk (must be unique).</div>
       </div>`;
     await reloadYaml();
     return;
@@ -1094,18 +915,13 @@ async function renderTabBody() {
     try {
       const r = await fetch(`/api/lab/${currentIdx}/reports`);
       const reports = await r.json();
-      if (!reports.length) {
-        el.innerHTML = '<div class="empty"><div class="icon">📄</div><div class="msg">No reports yet — run the lab first</div></div>';
-        return;
-      }
+      if (!reports.length) { el.innerHTML = '<div class="empty"><div class="icon">📄</div><div class="msg">No reports yet</div></div>'; return; }
       el.innerHTML = `<div class="report-list">${reports.map(r => `
         <div class="report-item" onclick="viewReport('${esc(r.exec_id)}')">
           <span class="id">${esc(r.exec_id.slice(0,12))}…</span>
           <span class="time">${fmtTime(r.mtime)}</span>
         </div>`).join('')}</div>`;
-    } catch (e) {
-      el.innerHTML = '<div class="empty"><div class="msg">Failed to load reports</div></div>';
-    }
+    } catch (e) { el.innerHTML = '<div class="empty"><div class="msg">Failed to load reports</div></div>'; }
     return;
   }
 
@@ -1114,17 +930,14 @@ async function renderTabBody() {
     try {
       const r = await fetch(`/api/report/${currentReport}`);
       currentReportRaw = await r.text();
-      let data;
-      try { data = JSON.parse(currentReportRaw); } catch(e) { data = currentReportRaw; }
+      let data; try { data = JSON.parse(currentReportRaw); } catch(e) { data = currentReportRaw; }
       el.innerHTML = `
         <div class="report-toolbar">
           <button onclick="switchTab('reports')">← Back</button>
           <button class="primary" onclick="copyReport()" id="copy-btn">📋 Copy JSON</button>
         </div>
         <div class="report-detail">${typeof data === 'object' ? syntaxHighlight(data) : esc(currentReportRaw)}</div>`;
-    } catch (e) {
-      el.innerHTML = '<div class="empty"><div class="msg">Failed to load</div></div>';
-    }
+    } catch (e) { el.innerHTML = '<div class="empty"><div class="msg">Failed to load</div></div>'; }
   }
 }
 
@@ -1138,68 +951,36 @@ async function runCurrent() {
       toast('Started');
       stopRequested = false;
       startPolling();
+      if (!consoleExpanded) toggleConsole();
       const stopBtn = $('stop-btn');
       if (stopBtn) { stopBtn.style.display = 'inline-flex'; stopBtn.disabled = false; stopBtn.innerHTML = '■ Stop'; }
     }
-    else if (r.status === 409) {
-      toast('Another lab is already running', true);
-      if (btn) { btn.disabled = false; btn.innerHTML = '▶ Run'; }
-    }
-    else {
-      const err = await r.text();
-      toast(err.slice(0, 100) || 'Failed', true);
-      if (btn) { btn.disabled = false; btn.innerHTML = '▶ Run'; }
-    }
-  } catch (e) {
-    toast('Network error', true);
-    if (btn) { btn.disabled = false; btn.innerHTML = '▶ Run'; }
-  }
+    else if (r.status === 409) { toast('Another lab is already running', true); if (btn) { btn.disabled = false; btn.innerHTML = '▶ Run'; } }
+    else { toast((await r.text()).slice(0, 100) || 'Failed', true); if (btn) { btn.disabled = false; btn.innerHTML = '▶ Run'; } }
+  } catch (e) { toast('Network error', true); if (btn) { btn.disabled = false; btn.innerHTML = '▶ Run'; } }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// Stop
-// ═══════════════════════════════════════════════════════════════
 function resetStopBtn() {
   stopRequested = false;
   const btn = $('stop-btn');
   if (btn) { btn.disabled = false; btn.innerHTML = '■ Stop'; }
 }
-
 async function stopCurrent() {
   if (stopRequested) return;
-
   const running = labs[currentIdx]?.status?.kind === 'running';
-  if (!running) {
-    toast('Nothing is running', true);
-    resetStopBtn();
-    return;
-  }
-
+  if (!running) { toast('Nothing is running', true); resetStopBtn(); return; }
   stopRequested = true;
   const btn = $('stop-btn');
   if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Stopping...'; }
-
   clearTimeout(stopCurrent._safety);
   stopCurrent._safety = setTimeout(() => {
-    if (stopRequested) {
-      resetStopBtn();
-      toast('Stop is taking longer than expected — check console', true);
-    }
+    if (stopRequested) { resetStopBtn(); toast('Stop taking too long — check console', true); }
   }, 30000);
-
   try {
     const r = await fetch('/api/stop', { method: 'POST' });
-    if (r.ok) {
-      toast('Stopping…');
-    } else {
-      const err = await r.text();
-      toast(err.slice(0, 80) || 'Stop failed', true);
-      resetStopBtn();
-    }
-  } catch (e) {
-    toast('Network error', true);
-    resetStopBtn();
-  }
+    if (r.ok) toast('Stopping…');
+    else { toast((await r.text()).slice(0, 80) || 'Stop failed', true); resetStopBtn(); }
+  } catch (e) { toast('Network error', true); resetStopBtn(); }
 }
 
 function startPolling() {
@@ -1214,9 +995,7 @@ function startPolling() {
   }, 1000);
 }
 
-// ═══════════════════════════════════════════════════════════════
-// YAML
-// ═══════════════════════════════════════════════════════════════
+// ─── YAML ───
 async function reloadYaml() {
   const el = $('yaml-editor');
   if (!el) return;
@@ -1228,7 +1007,6 @@ async function reloadYaml() {
     if (st) st.textContent = '';
   } catch (e) { if (st) st.textContent = '✗ load failed'; }
 }
-
 async function saveYaml() {
   const el = $('yaml-editor');
   if (!el) return;
@@ -1246,70 +1024,43 @@ async function saveYaml() {
       setTimeout(() => { if (st) st.textContent = ''; }, 2000);
       await loadLabs();
     } else {
-      const err = await r.text();
-      if (st) { st.textContent = '✗ ' + err.slice(0,80); st.style.color = 'var(--red)'; }
+      if (st) { st.textContent = '✗ ' + (await r.text()).slice(0,80); st.style.color = 'var(--red)'; }
       toast('Save failed', true);
     }
-  } catch (e) {
-    if (st) { st.textContent = '✗ network error'; st.style.color = 'var(--red)'; }
-  }
+  } catch (e) { if (st) { st.textContent = '✗ network error'; st.style.color = 'var(--red)'; } }
 }
-
 async function deleteCurrentLab() {
   if (currentIdx === null) return;
   const lab = labs[currentIdx];
   if (!lab) return;
-  if (!confirm(`Delete lab "${lab.name}"?\n\nThis will remove its YAML file from disk.`)) return;
-
+  if (!confirm(`Delete lab "${lab.name}"?`)) return;
   try {
     const r = await fetch(`/api/lab/${currentIdx}/delete`, { method: 'POST' });
-    if (r.ok) {
-      toast('Lab deleted');
-      goHome();
-      await loadLabs();
-    } else {
-      const err = await r.text();
-      toast(err.slice(0, 80), true);
-    }
-  } catch (e) {
-    toast('Delete failed', true);
-  }
+    if (r.ok) { toast('Deleted'); goHome(); await loadLabs(); }
+    else toast((await r.text()).slice(0, 80), true);
+  } catch (e) { toast('Delete failed', true); }
 }
-
 async function viewReport(execId) {
   currentReport = execId;
   currentTab = 'report-detail';
   document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', i === 2));
   await renderTabBody();
 }
-
-// ═══════════════════════════════════════════════════════════════
-// Copy report JSON
-// ═══════════════════════════════════════════════════════════════
 async function copyReport() {
   if (!currentReportRaw) return;
   const btn = $('copy-btn');
   try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(currentReportRaw);
-    } else {
+    if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(currentReportRaw);
+    else {
       const ta = document.createElement('textarea');
-      ta.value = currentReportRaw;
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
+      ta.value = currentReportRaw; ta.style.position = 'fixed'; ta.style.left = '-9999px';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
     }
-    if (btn) { btn.innerHTML = '✓ Copied'; }
-    toast('Report copied to clipboard');
+    if (btn) btn.innerHTML = '✓ Copied';
+    toast('Report copied');
     setTimeout(() => { if (btn) btn.innerHTML = '📋 Copy JSON'; }, 2000);
-  } catch (e) {
-    toast('Copy failed', true);
-  }
+  } catch (e) { toast('Copy failed', true); }
 }
-
 function syntaxHighlight(obj) {
   const json = JSON.stringify(obj, null, 2);
   return esc(json)
@@ -1321,9 +1072,7 @@ function syntaxHighlight(obj) {
     .replace(/:\s*(-?\d+\.?\d*)/g, ': <span class="num">$1</span>');
 }
 
-// ═══════════════════════════════════════════════════════════════
-// Boot
-// ═══════════════════════════════════════════════════════════════
+// ─── Boot ───
 renderWelcome();
 loadLabs();
 loadProvider();

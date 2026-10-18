@@ -9,6 +9,7 @@ box:
   compose_dir: "~/vulhub-master/weblogic/CVE-2020-14882"
   teardown: down
   wait_secs: 60
+  health_check_path: /console/
 
 max_attempts: 5
 
