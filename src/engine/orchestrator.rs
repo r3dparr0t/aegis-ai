@@ -7,8 +7,8 @@ use crate::{
 		LlmProvider, LlmRequest, LlmResponse, MemoryQuery, TargetExecutor,},
 	engine::state::ExecutionState,
 	memory::SqliteMemoryRepository, 
-    executor::{json::{extract_json_object, strip_code_fences},
-        payload::apply_ip_encoding},
+    executor:: {json::{extract_json_object, strip_code_fences},
+        payload::apply_transforms},
     events::{ConsoleObserver, Event, SharedObserver},
     provider::OllamaProvider,
 };
@@ -433,16 +433,40 @@ impl ExecutionEngine {
             }
 
             // -------------------------------------------------------------------
-            // IP-encoding transform
+            // Transforms (ip_encoding, base64_field, ...)
             // -------------------------------------------------------------------
             let mut payload = payload;
             let before_str = payload.to_string();
-            if let Some(fmt) = apply_ip_encoding(&mut payload) {
-                self.emit(Event::PayloadTransformed {
-                    before: before_str,
-                    after: payload.to_string(),
-                    format: format!("{:?}", fmt),
-                });
+            match apply_transforms(&mut payload) {
+                Ok(applied) => {
+                    for a in applied {
+                        self.emit(Event::PayloadTransformed {
+                            before: before_str.clone(),
+                            after: payload.to_string(),
+                            format: format!("{}={}", a.field, a.value),
+                        });
+                    }
+                }
+                Err(e) => {
+                    self.emit_error("transform", e.clone(), false);
+                    let eval_result = EvaluationResult {
+                        is_valid: false,
+                        error: Some(EvaluationError::Custom("invalid_payload".to_string())),
+                        error_details: Some(format!("transform failed: {}", e)),
+                    };
+                    self.record_attempt_and_learn(
+                        &execution_id,
+                        current_attempt,
+                        &request,
+                        &response,
+                        &eval_result,
+                        &lesson_ids_used_this_attempt,
+                        &mut accumulated_lessons,
+                    )
+                    .await?;
+                    current_attempt += 1;
+                    continue;
+                }
             }
 
             // -------------------------------------------------------------------
