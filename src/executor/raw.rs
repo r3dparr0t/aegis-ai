@@ -120,29 +120,32 @@ impl RawHttpExecutor {
             latency_ms,
         })
     }
-    
+
     async fn execute_chain(&self, payload: &Value) -> Result<ExecutionOutcome, ExecutorError> {
-       if let Some(requests) = payload.get("requests").and_then(|v| v.as_array()) {
+        if let Some(requests) = payload.get("requests").and_then(|v| v.as_array()) {
             if requests.is_empty() {
-                return Err(ExecutorError::InvalidPayload(
-                    "'requests' array is empty".into(),
-                ));
+                return Err(ExecutorError::InvalidPayload("'requests' array is empty".into()));
             }
             let total = requests.len();
-            let mut last: Option<ExecutionOutcome> = None;
+            let mut outcomes = Vec::with_capacity(total);
             for (i, req) in requests.iter().enumerate() {
                 match self.execute_one(req).await {
-                    Ok(o) => last = Some(o),
-                    Err(e) => {
-                        return Err(ExecutorError::StepFailed {
-                            step: i + 1,
-                            total,
-                            inner: Box::new(e),
-                        });
-                    }
+                    Ok(o) => outcomes.push(o),
+                    Err(e) => return Err(ExecutorError::StepFailed { step: i + 1, total, inner: Box::new(e) }),
                 }
             }
-            return Ok(last.unwrap());
+            // بدنه‌ی همه‌ی مراحل رو به هم بچسبون، تا evaluator روی کل زنجیره match کنه
+            let combined_body = outcomes.iter()
+                .map(|o| o.body.as_str())
+                .collect::<Vec<_>>()
+                .join("\n---\n");
+            let last = outcomes.last().unwrap();
+            return Ok(ExecutionOutcome {
+                status_code: last.status_code,
+                headers: last.headers.clone(),
+                body: combined_body,
+                latency_ms: outcomes.iter().map(|o| o.latency_ms).sum(),
+            });
         }
         self.execute_one(payload).await
     }
