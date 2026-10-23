@@ -28,24 +28,38 @@ impl Evaluator for RegexEvaluator {
             haystack.push('\n');
             haystack.push_str(v);
         }
-        if self.regex.is_match(&haystack) {
-            EvaluationResult {
+         // ۱. اول بدنه
+        if self.regex.is_match(&input.body) {
+            return EvaluationResult {
                 is_valid: true,
                 error: None,
-                error_details: None,
+                error_details: Some("matched in body".to_string()),
+            };
+        }
+
+        // ۲. بعد مقادیر هدرها (name فقط برای پیام گزارش)
+        for (name, value) in &input.headers {
+            if self.regex.is_match(value) {
+                return EvaluationResult {
+                    is_valid: true,
+                    error: None,
+                    error_details: Some(format!("matched in header '{}'", name)),
+                };
             }
-        } else {
-            EvaluationResult {
-                is_valid: false,
-                error: Some(EvaluationError::LogicFailure(
-                    "regex_pattern_not_found".into(),
-                )),
-                error_details: Some(format!(
-                    "Response did not match pattern '{}'. Got: {}",
-                    self.source,
-                    input.body.chars().take(300).collect::<String>()
-                )),
-            }
+        }
+
+        // ۳. شکست — هم بدنه هم هدرها را در error_details بگذار
+        EvaluationResult {
+            is_valid: false,
+            error: Some(EvaluationError::LogicFailure(
+                "regex_pattern_not_found".into(),
+            )),
+            error_details: Some(format!(
+                "Response did not match pattern '{}'. Body (first 300): {} | Headers: {:?}",
+                self.source,
+                input.body.chars().take(300).collect::<String>(),
+                input.headers
+            )),
         }
     }
 }

@@ -44,6 +44,7 @@ fn strip_ansi(s: &str) -> String {
 }
 
 /// دستور کوتاه docker که فقط خروجی نهایی‌اش رو لازم داریم (مثل `docker ps`).
+#[allow(dead_code)]
 async fn run_docker_capture(
     args: &[&str],
     cwd: &std::path::Path,
@@ -262,7 +263,7 @@ pub async fn preflight(
     }
 
     // ۲. port check
-    if health_check(&base_url, path, 1).await.is_ok() {
+    /*if health_check(&base_url, path, 1).await.is_ok() {
         let port = url::Url::parse(&base_url)
             .ok()
             .and_then(|u| u.port_or_known_default())
@@ -292,6 +293,28 @@ pub async fn preflight(
             Or set `teardown: stop` in this lab's box spec if you want to keep it across runs.",
             port, containers, port
         ));
+    }*/
+
+    // ۲. port check
+    // اگه سرویس از قبل بالاست — صرف‌نظر از این‌که چه کسی اجراش کرده —
+    // ازش استفاده می‌کنیم. (قبلاً اگه container در started_boxes نبود،
+    // خطای "Aegis did NOT start" برمی‌گشت و لب اجرا نمی‌شد.)
+    if health_check(&base_url, path, 1).await.is_ok() {
+        if !is_persistent {
+            // یه هشدار غیرمهلک بدیم که کاربر بدونه teardown خودکار نمی‌شه.
+            let dir_for_msg = my_dbox
+                .map(|b| b.compose_dir.clone())
+                .unwrap_or_default();
+            observer.on_event(Event::BoxOutput {
+                compose_dir: dir_for_msg,
+                stream: "stderr".to_string(),
+                line: format!(
+                    "ℹ️  target already up at {} — reusing existing service (no auto-teardown)",
+                    base_url
+                ),
+            });
+        }
+        return PreflightResult::AlreadyUp;
     }
 
     // ۳. dbox لازمه

@@ -523,7 +523,7 @@ impl ExecutionEngine {
 
             let eval_result = self.evaluator.evaluate(EvaluationInput {
                 body: &outcome.body,
-                headers: outcome.headers,
+                headers: outcome.headers.clone(),
                 status_code: outcome.status_code,
                 latency_ms: outcome.latency_ms,
             });
@@ -541,8 +541,15 @@ impl ExecutionEngine {
                 });
             }
 
+            let mut combined_output = outcome.body.clone();
+            if !outcome.headers.is_empty() {
+                combined_output.push_str("\n\n--- RESPONSE HEADERS ---\n");
+                for (k, v) in &outcome.headers {
+                    combined_output.push_str(&format!("{}: {}\n", k, v));
+                }
+            }
             let recorded_response = LlmResponse {
-                output: outcome.body.clone(),
+                output: combined_output,
                 model: response.model.clone(),
                 prompt_tokens: response.prompt_tokens,
                 completion_tokens: response.completion_tokens,
