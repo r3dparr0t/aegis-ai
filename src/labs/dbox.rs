@@ -263,57 +263,82 @@ pub async fn preflight(
     }
 
     // ۲. port check
-    /*if health_check(&base_url, path, 1).await.is_ok() {
+    // اگه سرویس بالاست، باید مطمئن بشیم متعلق به همین lab هست (نه یه lab دیگه
+    // که هنوز بسته نشده). مالکیت رو از docker label «compose project working_dir»
+    // تشخیص می‌دیم.
+    if health_check(&base_url, path, 1).await.is_ok() {
         let port = url::Url::parse(&base_url)
             .ok()
             .and_then(|u| u.port_or_known_default())
             .unwrap_or(80);
 
         let ps_out = run_docker_capture(
-            &["ps", "--filter", &format!("publish={}", port), "--format",
-              "{{.ID}}\t{{.Names}}\t{{.Image}}"],
+            &[
+                "ps",
+                "--filter", &format!("publish={}", port),
+                "--format", "{{.Names}}\t{{.Label \"com.docker.compose.project.working_dir\"}}",
+            ],
             std::path::Path::new("."),
             15,
         )
         .await
         .ok();
 
-        let containers = ps_out
+        let port_containers: Vec<(String, String)> = ps_out
             .as_ref()
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .lines()
+                    .filter_map(|l| {
+                        let mut parts = l.splitn(2, '\t');
+                        Some((
+                            parts.next()?.to_string(),
+                            parts.next().unwrap_or("").to_string(),
+                        ))
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
 
-        if is_persistent {
+        // اگه هیچ container داکری روی پورت نیست → احتمالاً user دستی بالا آورده.
+        if port_containers.is_empty() {
             return PreflightResult::AlreadyUp;
         }
 
-        return PreflightResult::Down(format!(
-            "port {} is occupied by container(s) Aegis did NOT start:\n{}\n\
-            Fix: docker ps --filter publish={} --format '{{{{.ID}}}}' | xargs -r docker kill\n\
-            Or set `teardown: stop` in this lab's box spec if you want to keep it across runs.",
-            port, containers, port
-        ));
-    }*/
+        if let Some(mc) = my_dbox {
+            let my_dir_str = normalize_path(&mc.compose_dir);
 
-    // ۲. port check
-    // اگه سرویس از قبل بالاست — صرف‌نظر از این‌که چه کسی اجراش کرده —
-    // ازش استفاده می‌کنیم. (قبلاً اگه container در started_boxes نبود،
-    // خطای "Aegis did NOT start" برمی‌گشت و لب اجرا نمی‌شد.)
-    if health_check(&base_url, path, 1).await.is_ok() {
-        if !is_persistent {
-            // یه هشدار غیرمهلک بدیم که کاربر بدونه teardown خودکار نمی‌شه.
-            let dir_for_msg = my_dbox
-                .map(|b| b.compose_dir.clone())
-                .unwrap_or_default();
-            observer.on_event(Event::BoxOutput {
-                compose_dir: dir_for_msg,
-                stream: "stderr".to_string(),
-                line: format!(
-                    "ℹ️  target already up at {} — reusing existing service (no auto-teardown)",
-                    base_url
-                ),
-            });
+            // اگه حداقل یکی از containerهای روی پورت از compose_dir ما هست → reuse
+            if port_containers
+                .iter()
+                .any(|(_, dir)| !dir.is_empty() && normalize_path(dir) == my_dir_str)
+            {
+                return PreflightResult::AlreadyUp;
+            }
+
+            // پورت توسط یه lab دیگه گرفته شده → refuse
+            let names: Vec<String> = port_containers
+                .iter()
+                .map(|(n, d)| {
+                    format!(
+                        "  - {} (compose_dir: {})",
+                        n,
+                        if d.is_empty() { "?" } else { d.as_str() }
+                    )
+                })
+                .collect();
+
+            return PreflightResult::Down(format!(
+                "port {} is up but NOT owned by this lab's compose_dir ('{}').\n\
+                 Container(s) on this port:\n{}\n\
+                 This usually means another lab's box is still running on this port.\n\
+                 Fix: docker ps --filter publish={} --format '{{{{.Names}}}}' | xargs -r docker stop\n\
+                 Or make sure the previous lab's box has `teardown: down` in its spec.",
+                port, my_dir_str, names.join("\n"), port
+            ));
         }
+
+        // lab بدون dbox → مالکیت قابل چک نیست، فرض می‌کنیم user خودش مدیریت می‌کنه
         return PreflightResult::AlreadyUp;
     }
 
@@ -489,6 +514,13 @@ pub async fn teardown(
 
     started_boxes.lock().unwrap().remove(&dir);
     observer.on_event(Event::BoxDown { compose_dir: dir_str });
+}
+
+fn normalize_path(path: &str) -> String {
+    let p = expand_tilde(path);
+    std::fs::canonicalize(&p)
+        .map(|c| c.display().to_string())
+        .unwrap_or_else(|_| p.display().to_string())
 }
 
 fn expand_tilde(path: &str) -> PathBuf {
