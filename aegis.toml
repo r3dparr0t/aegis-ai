@@ -1,7 +1,7 @@
 [server]
 host = "0.0.0.0"
 port = 7788
-auto_manage_box = false
+auto_manage_box = true
 
 [paths]
 labs_dir = "labs"

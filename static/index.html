@@ -20,10 +20,34 @@
   .app-main{flex:1;display:grid;grid-template-columns:320px 1fr;min-height:0;overflow:hidden}
 
   .sidebar{background:var(--panel-2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
-  .brand{padding:18px 22px 14px;border-bottom:1px solid var(--border)}
+
+  /* ── Brand ── */
+  .brand{
+    padding:16px 14px 14px 20px;
+    border-bottom:1px solid var(--border);
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:8px;
+  }
+  .brand-text{flex:1;min-width:0}
   .brand h1{font-size:15px;font-weight:700;letter-spacing:0.5px;display:flex;align-items:center;gap:8px}
   .brand .sub{font-size:11px;color:var(--text-dim);margin-top:3px;font-family:var(--mono)}
+  .brand-settings{
+    background:transparent;
+    border:1px solid transparent;
+    color:var(--text-faint);
+    width:26px;height:26px;padding:0;
+    border-radius:6px;cursor:pointer;
+    display:inline-flex;align-items:center;justify-content:center;
+    flex-shrink:0;
+    transition:all 0.1s;
+    margin-top:-2px;
+  }
+  .brand-settings:hover{color:var(--text);background:var(--panel);border-color:var(--border-2)}
+  .brand-settings svg{display:block}
 
+  /* ── Model box ── */
   .model-box{padding:12px 22px;border-bottom:1px solid var(--border);background:var(--panel)}
   .model-box .lbl{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.9px;font-weight:600;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
   .model-box .lbl .kind{color:var(--accent);font-family:var(--mono);font-size:10px;text-transform:none;letter-spacing:0}
@@ -43,15 +67,17 @@
   .model-apply:disabled{opacity:0.3;cursor:not-allowed}
   .model-hint{font-size:10px;color:var(--text-faint);margin-top:6px;line-height:1.4}
 
+  /* ── Labs header ── */
   .labs-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden}
-  .labs-header{padding:10px 22px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);background:var(--panel);gap:8px}
+  .labs-header{padding:10px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);background:var(--panel);gap:8px}
   .labs-header .lbl{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.9px;font-weight:600}
   .labs-header .actions{display:flex;gap:6px;align-items:center}
-  .labs-header button{padding:4px 10px;font-size:11px;border-radius:5px}
+  .labs-header button{padding:4px 10px;font-size:11px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;line-height:1.2}
   .labs-header button.icon-only{padding:5px 8px;color:var(--text-dim)}
-  .labs-header button.icon-only:hover{color:var(--text)}
+  .labs-header button.icon-only:hover:not(:disabled){color:var(--text)}
   .labs-header button.icon-only svg{display:block}
 
+  /* ── Search/sort ── */
   .search-sort-bar{padding:8px 22px;background:var(--panel-2);border-bottom:1px solid var(--border);display:flex;gap:6px;align-items:center}
   .search-box{flex:1;position:relative}
   .search-box input{width:100%;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 10px 6px 28px;font-size:12px;font-family:inherit}
@@ -67,6 +93,7 @@
   .sort-btns button:hover{color:var(--text);background:var(--panel)}
   .sort-btns button.active{background:var(--panel);color:var(--accent);border-color:var(--border-2)}
 
+  /* ── Labs list ── */
   .labs{flex:1;overflow-y:auto;padding:6px 0}
   .lab-item{padding:11px 22px;cursor:pointer;border-left:3px solid transparent;transition:background 0.1s;display:flex;gap:12px;align-items:flex-start}
   .lab-item:hover{background:var(--panel)}
@@ -90,6 +117,7 @@
 
   .no-results{padding:24px 20px;text-align:center;color:var(--text-faint);font-size:12px;font-style:italic}
 
+  /* ── Main ── */
   .main{display:flex;flex-direction:column;overflow:hidden;min-width:0}
   #main-content{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
   .main-header{padding:20px 32px;border-bottom:1px solid var(--border);background:var(--panel-2);display:flex;align-items:center;justify-content:space-between;gap:16px}
@@ -167,6 +195,7 @@
   .empty .icon{font-size:48px;opacity:0.3}
   .empty .msg{font-size:14px}
 
+  /* ── Welcome ── */
   .welcome{flex:1;display:flex;align-items:center;justify-content:center;overflow-y:auto;padding:40px 20px}
   .welcome-inner{max-width:760px;width:100%;margin:auto 0}
   .welcome-hero{text-align:center;margin-bottom:36px}
@@ -199,10 +228,12 @@
   .box-warning strong{color:var(--yellow)}
   .box-warning code{font-family:var(--mono);font-size:12px;background:var(--panel-2);padding:2px 6px;border-radius:4px;color:var(--accent)}
 
+  /* ── Toast ── */
   .toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;font-size:13px;font-weight:500;color:white;background:var(--green);opacity:0;transform:translateY(10px);transition:all 0.25s;pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:1000}
   .toast.show{opacity:1;transform:translateY(0)}
   .toast.err{background:var(--red)}
 
+  /* ── Modal ── */
   .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:900;backdrop-filter:blur(2px)}
   .modal-overlay.hidden{display:none}
   .modal{background:var(--panel);border:1px solid var(--border-2);border-radius:10px;padding:24px;min-width:440px;max-width:540px;box-shadow:0 20px 60px rgba(0,0,0,0.7);max-height:90vh;overflow-y:auto}
@@ -214,45 +245,16 @@
   .modal .hint{font-size:11px;color:var(--text-faint);margin-top:4px;font-family:var(--mono)}
   .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
   .modal-error{color:var(--red);font-size:12px;margin-top:10px;font-family:var(--mono);min-height:18px}
-
-  /* ★ toggle row داخل مودال settings */
-  .modal label.toggle-label{
-    display:flex;align-items:center;gap:10px;cursor:pointer;
-    text-transform:none;letter-spacing:0;font-size:13px;color:var(--text);
-    font-weight:500;margin-top:14px;margin-bottom:0;
-  }
-  .modal label.toggle-label input[type="checkbox"]{
-    width:auto;height:16px;margin:0;accent-color:var(--accent);cursor:pointer;
-  }
-  .modal .section-title{
-    font-size:10px;color:var(--text-faint);text-transform:uppercase;
-    letter-spacing:1px;font-weight:600;margin-top:18px;margin-bottom:6px;
-    border-top:1px solid var(--border);padding-top:14px;
-  }
+  .modal label.toggle-label{display:flex;align-items:center;gap:10px;cursor:pointer;text-transform:none;letter-spacing:0;font-size:13px;color:var(--text);font-weight:500;margin-top:14px;margin-bottom:0}
+  .modal label.toggle-label input[type="checkbox"]{width:auto;height:16px;margin:0;accent-color:var(--accent);cursor:pointer}
+  .modal .section-title{font-size:10px;color:var(--text-faint);text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-top:18px;margin-bottom:6px;border-top:1px solid var(--border);padding-top:14px}
   .modal .section-title:first-of-type{border-top:none;padding-top:0;margin-top:0;}
 
-  /* ═══ Bottom console ═══ */
-  .bottom-console{
-    flex-shrink:0;
-    background:var(--panel-2);
-    border-top:1px solid var(--border);
-    display:flex;
-    flex-direction:column;
-    transition: height 0.2s ease;
-  }
+  /* ── Bottom console ── */
+  .bottom-console{flex-shrink:0;background:var(--panel-2);border-top:1px solid var(--border);display:flex;flex-direction:column;transition:height 0.2s ease}
   .bottom-console.collapsed{height:38px}
   .bottom-console.expanded{height:280px}
-  .console-header{
-    height:38px;
-    padding:0 20px;
-    display:flex;
-    align-items:center;
-    gap:12px;
-    cursor:pointer;
-    background:var(--panel);
-    border-bottom:1px solid var(--border);
-    user-select:none;
-  }
+  .console-header{height:38px;padding:0 20px;display:flex;align-items:center;gap:12px;cursor:pointer;background:var(--panel);border-bottom:1px solid var(--border);user-select:none}
   .console-header:hover{background:var(--panel-2)}
   .console-title{font-size:12px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;display:flex;align-items:center;gap:8px}
   .console-status{font-size:11px;font-family:var(--mono);color:var(--text-faint);margin-left:auto}
@@ -261,16 +263,7 @@
   .console-status.err{color:var(--red)}
   .console-toggle{font-size:11px;color:var(--text-faint);transition:transform 0.2s}
   .bottom-console.expanded .console-toggle{transform:rotate(180deg)}
-  .console-body{
-    flex:1;
-    overflow-y:auto;
-    padding:10px 20px;
-    font-family:var(--mono);
-    font-size:11.5px;
-    line-height:1.6;
-    color:var(--text);
-    background:var(--bg);
-  }
+  .console-body{flex:1;overflow-y:auto;padding:10px 20px;font-family:var(--mono);font-size:11.5px;line-height:1.6;color:var(--text);background:var(--bg)}
   .console-line{display:flex;gap:8px;padding:1px 0;white-space:pre-wrap;word-break:break-all}
   .console-line .icon{flex-shrink:0;width:16px;text-align:center;font-size:11px}
   .console-line .text{flex:1;color:var(--text-dim)}
@@ -292,8 +285,13 @@
   <div class="app-main">
     <aside class="sidebar">
       <div class="brand">
-        <h1>🛡 Aegis</h1>
-        <div class="sub">SSRF Fuzzing Engine</div>
+        <div class="brand-text">
+          <h1>🛡 Aegis</h1>
+          <div class="sub">SSRF Fuzzing Engine</div>
+        </div>
+        <button class="brand-settings" onclick="openSettingsModal()" title="Server settings" aria-label="Server settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
       </div>
 
       <div class="model-box">
@@ -312,9 +310,6 @@
         <div class="labs-header">
           <span class="lbl">Labs</span>
           <div class="actions">
-            <button class="icon-only" onclick="openSettingsModal()" title="Server settings" aria-label="Server settings">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-            </button>
             <button class="icon-only" onclick="reloadLabs()" id="reload-btn" title="Re-read labs/*.yaml from disk" aria-label="Reload labs">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             </button>
@@ -357,7 +352,6 @@
   </div>
 </div>
 
-<!-- ═══ New Lab modal ═══ -->
 <div class="modal-overlay hidden" id="new-lab-modal">
   <div class="modal">
     <h3>➕ Create a new lab</h3>
@@ -396,7 +390,6 @@
   </div>
 </div>
 
-<!-- ═══ Server Settings modal ═══ -->
 <div class="modal-overlay hidden" id="settings-modal">
   <div class="modal">
     <h3>⚙️ Server settings</h3>
@@ -670,7 +663,7 @@ function renderWelcome() {
           <h3>Quick start</h3>
           <ul class="welcome-list">
             <li><span class="ico">🐳</span><span>Click the <strong>Live console</strong> at the bottom to see docker output while it runs.</span></li>
-            <li><span class="ico">⚙️</span><span>Server settings (host / port / auto_manage_box) from the gear icon in the Labs header.</span></li>
+            <li><span class="ico">⚙️</span><span>Server settings (host / port / auto_manage_box) from the gear icon next to the logo.</span></li>
             <li><span class="ico">▶</span><span>Run one or all; <code>■ Stop</code> cancels cleanly.</span></li>
             <li><span class="ico">📄</span><span>Each run produces a report under the Reports tab.</span></li>
           </ul>
