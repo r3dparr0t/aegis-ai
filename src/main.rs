@@ -1,5 +1,5 @@
 // src/main.rs
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, atomic::AtomicBool};
 use sqlx::sqlite::SqlitePoolOptions;
 
 use aegis_ai::{
@@ -24,10 +24,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ★ Config
     let config = Arc::new(Config::load());
     let url = config.server_url();
+    // ★ Arc<AtomicBool> ساخته می‌شه — بین WebState و LabContext share می‌شه
+    let auto_manage_box = Arc::new(AtomicBool::new(config.server.auto_manage_box));
 
-    /*let pool = SqlitePoolOptions::new()
-        .connect("sqlite://aegis.db?mode=rwc")
-        .await?;*/
     // DB — runtime migration load
     let pool = SqlitePoolOptions::new()
         .connect(&config.db_url())
@@ -57,8 +56,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let labs = Arc::new(RwLock::new(labs_vec));
 
     // Web state
-    let web_state: SharedWebState = Arc::new(Mutex::new(WebState::new()));
-
+    let web_state: SharedWebState = Arc::new(Mutex::new(WebState::new(
+        auto_manage_box.clone(),
+        config.server.host.clone(),
+        config.server.port,
+    )));
     // قفل global
     let run_lock = Arc::new(Mutex::new(None));
 
@@ -78,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         observer: composite,
         run_lock: run_lock.clone(),
         reports_dir: config.paths.reports_dir.clone(),
-        auto_manage_box: config.server.auto_manage_box,
+        auto_manage_box: auto_manage_box.clone(),   // ← بود: config.server.auto_manage_box
         cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         started_boxes: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
     });

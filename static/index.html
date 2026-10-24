@@ -46,9 +46,11 @@
   .labs-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden}
   .labs-header{padding:10px 22px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);background:var(--panel);gap:8px}
   .labs-header .lbl{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.9px;font-weight:600}
-  .labs-header .actions{display:flex;gap:6px}
+  .labs-header .actions{display:flex;gap:6px;align-items:center}
   .labs-header button{padding:4px 10px;font-size:11px;border-radius:5px}
-  .labs-header button.icon-only{padding:4px 8px}
+  .labs-header button.icon-only{padding:5px 8px;color:var(--text-dim)}
+  .labs-header button.icon-only:hover{color:var(--text)}
+  .labs-header button.icon-only svg{display:block}
 
   .search-sort-bar{padding:8px 22px;background:var(--panel-2);border-bottom:1px solid var(--border);display:flex;gap:6px;align-items:center}
   .search-box{flex:1;position:relative}
@@ -213,6 +215,22 @@
   .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
   .modal-error{color:var(--red);font-size:12px;margin-top:10px;font-family:var(--mono);min-height:18px}
 
+  /* ★ toggle row داخل مودال settings */
+  .modal label.toggle-label{
+    display:flex;align-items:center;gap:10px;cursor:pointer;
+    text-transform:none;letter-spacing:0;font-size:13px;color:var(--text);
+    font-weight:500;margin-top:14px;margin-bottom:0;
+  }
+  .modal label.toggle-label input[type="checkbox"]{
+    width:auto;height:16px;margin:0;accent-color:var(--accent);cursor:pointer;
+  }
+  .modal .section-title{
+    font-size:10px;color:var(--text-faint);text-transform:uppercase;
+    letter-spacing:1px;font-weight:600;margin-top:18px;margin-bottom:6px;
+    border-top:1px solid var(--border);padding-top:14px;
+  }
+  .modal .section-title:first-of-type{border-top:none;padding-top:0;margin-top:0;}
+
   /* ═══ Bottom console ═══ */
   .bottom-console{
     flex-shrink:0;
@@ -294,7 +312,12 @@
         <div class="labs-header">
           <span class="lbl">Labs</span>
           <div class="actions">
-            <button class="icon-only" onclick="reloadLabs()" id="reload-btn" title="Re-read labs/*.yaml from disk">🔄</button>
+            <button class="icon-only" onclick="openSettingsModal()" title="Server settings" aria-label="Server settings">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+            <button class="icon-only" onclick="reloadLabs()" id="reload-btn" title="Re-read labs/*.yaml from disk" aria-label="Reload labs">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            </button>
             <button onclick="openNewLabModal()" title="Create a new lab">+ New</button>
             <button onclick="runAll()" title="Run all visible labs sequentially">▶ Run all</button>
           </div>
@@ -334,6 +357,7 @@
   </div>
 </div>
 
+<!-- ═══ New Lab modal ═══ -->
 <div class="modal-overlay hidden" id="new-lab-modal">
   <div class="modal">
     <h3>➕ Create a new lab</h3>
@@ -372,6 +396,42 @@
   </div>
 </div>
 
+<!-- ═══ Server Settings modal ═══ -->
+<div class="modal-overlay hidden" id="settings-modal">
+  <div class="modal">
+    <h3>⚙️ Server settings</h3>
+
+    <div class="section-title">[server]</div>
+
+    <label for="settings-host">Host</label>
+    <input id="settings-host" placeholder="127.0.0.1" autocomplete="off" oninput="updateRestartBanner()">
+    <div class="hint">Requires restart to take effect</div>
+
+    <label for="settings-port">Port</label>
+    <input id="settings-port" type="number" min="1" max="65535" oninput="updateRestartBanner()">
+    <div class="hint">Requires restart to take effect</div>
+
+    <label class="toggle-label" for="settings-auto-manage">
+      <input type="checkbox" id="settings-auto-manage">
+      <span>auto_manage_box</span>
+    </label>
+    <div class="hint">Starts/stops docker boxes automatically. Takes effect immediately (for future runs).</div>
+
+    <div id="settings-restart-banner" class="box-warning" style="display:none;margin-top:16px">
+      <p><strong>⚠️ Restart required</strong></p>
+      <p>Host/port changed. Restart the server (<code>Ctrl+C</code> then <code>cargo run</code>) for it to take effect.</p>
+    </div>
+
+    <div class="hint" id="settings-config-path" style="margin-top:14px"></div>
+
+    <div class="modal-error" id="settings-error"></div>
+    <div class="modal-actions">
+      <button onclick="closeSettingsModal()">Cancel</button>
+      <button class="primary" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -389,6 +449,9 @@ let sortMode = 'order';
 let stopRequested = false;
 let consoleExpanded = false;
 let consoleAutoScroll = true;
+let currentSettings = null;
+
+const RELOAD_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
@@ -456,7 +519,6 @@ function toggleConsole() {
   const el = $('bottom-console');
   el.classList.toggle('collapsed', !consoleExpanded);
   el.classList.toggle('expanded', consoleExpanded);
-  $('console-toggle').textContent = consoleExpanded ? '▲' : '▲';
   if (consoleExpanded) {
     refreshConsole();
     if (!consolePollingTimer) {
@@ -494,20 +556,15 @@ function updateConsoleStatus(lines) {
 function renderConsole(lines) {
   const body = $('console-body');
   if (!body) return;
-
-  // ذخیره scroll position قبل از re-render
   const wasAtBottom = body.scrollTop + body.clientHeight >= body.scrollHeight - 20;
-
   if (!lines || !lines.length) {
     body.innerHTML = '<div class="console-empty">No log lines yet.</div>';
     return;
   }
-
   body.innerHTML = lines.map(l => {
     const cls = `console-line kind-${esc(l.kind || 'info')}`;
     return `<div class="${cls}"><span class="icon">${esc(l.icon || '·')}</span><span class="text">${esc(l.text || '')}</span></div>`;
   }).join('');
-
   if (wasAtBottom || consoleAutoScroll) {
     body.scrollTop = body.scrollHeight;
   }
@@ -571,7 +628,7 @@ async function reloadLabs() {
       toast((await r.text()).slice(0, 100) || 'Reload failed', true);
     }
   } catch (e) { toast('Network error', true); }
-  finally { if (btn) { btn.disabled = false; btn.textContent = '🔄'; } }
+  finally { if (btn) { btn.disabled = false; btn.innerHTML = RELOAD_SVG; } }
 }
 
 // ─── Welcome ───
@@ -613,7 +670,7 @@ function renderWelcome() {
           <h3>Quick start</h3>
           <ul class="welcome-list">
             <li><span class="ico">🐳</span><span>Click the <strong>Live console</strong> at the bottom to see docker output while it runs.</span></li>
-            <li><span class="ico">🔄</span><span>Reload labs from disk without restarting.</span></li>
+            <li><span class="ico">⚙️</span><span>Server settings (host / port / auto_manage_box) from the gear icon in the Labs header.</span></li>
             <li><span class="ico">▶</span><span>Run one or all; <code>■ Stop</code> cancels cleanly.</span></li>
             <li><span class="ico">📄</span><span>Each run produces a report under the Reports tab.</span></li>
           </ul>
@@ -801,8 +858,65 @@ async function submitNewLab() {
     } else $('modal-error').textContent = (await r.text()).slice(0, 120);
   } catch (e) { $('modal-error').textContent = 'network error'; }
 }
+
+// ─── Server Settings Modal ───
+async function openSettingsModal() {
+  $('settings-modal').classList.remove('hidden');
+  $('settings-error').textContent = 'loading...';
+  $('settings-restart-banner').style.display = 'none';
+  $('settings-config-path').textContent = '';
+  try {
+    const r = await fetch('/api/settings');
+    const data = await r.json();
+    currentSettings = data;
+    $('settings-host').value = data.host || '';
+    $('settings-port').value = data.port || 7777;
+    $('settings-auto-manage').checked = !!data.auto_manage_box;
+    $('settings-config-path').textContent = `Saved to: ${data.config_path || 'aegis.toml'}`;
+    updateRestartBanner();
+    $('settings-error').textContent = '';
+  } catch (e) {
+    $('settings-error').textContent = 'failed to load settings';
+  }
+}
+function closeSettingsModal() {
+  $('settings-modal').classList.add('hidden');
+}
+function updateRestartBanner() {
+  if (!currentSettings) return;
+  const hostChanged = ($('settings-host').value.trim() !== (currentSettings.boot_host || ''));
+  const portChanged = (parseInt($('settings-port').value) !== (currentSettings.boot_port || 0));
+  $('settings-restart-banner').style.display = (hostChanged || portChanged) ? 'block' : 'none';
+}
+async function saveSettings() {
+  const host = $('settings-host').value.trim();
+  const port = parseInt($('settings-port').value);
+  const auto = $('settings-auto-manage').checked;
+  if (!host) { $('settings-error').textContent = 'host is required'; return; }
+  if (!port || port < 1 || port > 65535) { $('settings-error').textContent = 'port must be 1–65535'; return; }
+  $('settings-error').textContent = 'saving...';
+  try {
+    const r = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ host, port, auto_manage_box: auto }),
+    });
+    if (r.ok) {
+      const data = await r.json();
+      toast(data.restart_required ? 'Saved — restart required for host/port' : 'Saved');
+      closeSettingsModal();
+    } else {
+      $('settings-error').textContent = (await r.text()).slice(0, 120);
+    }
+  } catch (e) {
+    $('settings-error').textContent = 'network error';
+  }
+}
+
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !$('new-lab-modal').classList.contains('hidden')) closeNewLabModal();
+  if (e.key !== 'Escape') return;
+  if (!$('new-lab-modal').classList.contains('hidden')) closeNewLabModal();
+  if (!$('settings-modal').classList.contains('hidden')) closeSettingsModal();
 });
 
 // ─── Open / Tabs ───

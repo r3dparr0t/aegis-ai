@@ -1,7 +1,7 @@
 // src/labs/mod.rs
 use std::{
     fs,
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock, atomic::AtomicBool},
     collections::HashSet,
 };
 
@@ -27,8 +27,8 @@ pub struct LabContext {
     pub observer: crate::events::SharedObserver,
     pub run_lock: RunLock,
     pub reports_dir: std::path::PathBuf,
-    pub auto_manage_box: bool,
-    pub cancel: Arc<std::sync::atomic::AtomicBool>,
+    pub auto_manage_box: Arc<AtomicBool>,
+    pub cancel: Arc<AtomicBool>,
     pub started_boxes: Arc<std::sync::Mutex<HashSet<std::path::PathBuf>>>,
 }
 

@@ -40,12 +40,19 @@ pub async fn run_locked(
     // Stop بزنه، lab بعدی که شروع بشه cancel رو صفر نمی‌کنه (چون loop
     // قبل از صدا زدن run_locked چک می‌کنه).
     ctx.cancel.store(false, std::sync::atomic::Ordering::SeqCst);
+
+
+    // ★ مقدار auto_manage_box در ابتدای ران snapshot می‌شه.
+    //   اگه کاربر وسط ران توگل کنه، روی همین ران اثری نداره
+    //   (تصمیم preflight/teardown قفل می‌مونه).
+    let auto_manage = ctx.auto_manage_box.load(std::sync::atomic::Ordering::Relaxed);
+
     let lab_id = lab.id();
 
     let preflight = dbox::preflight(
         lab,
         all_labs,
-        ctx.auto_manage_box,
+        auto_manage,
         &ctx.cancel,
         &ctx.started_boxes,
         &ctx.observer,
@@ -55,7 +62,7 @@ pub async fn run_locked(
     if ctx.cancel.load(std::sync::atomic::Ordering::SeqCst) {
         eprintln!("[STOP] lab {} cancelled during preflight", lab.name());
         if matches!(preflight, PreflightResult::Started) {
-            dbox::teardown(lab, ctx.auto_manage_box, &ctx.observer, &ctx.started_boxes).await;
+            dbox::teardown(lab, auto_manage, &ctx.observer, &ctx.started_boxes).await;
         }
         Lab::finish_cancelled(lab, &ctx.run_lock);
         return;
@@ -90,7 +97,7 @@ pub async fn run_locked(
     };
 
     if owns_box {
-        dbox::teardown(lab, ctx.auto_manage_box, &ctx.observer, &ctx.started_boxes).await;
+        dbox::teardown(lab, auto_manage, &ctx.observer, &ctx.started_boxes).await;
         ctx.observer.on_event(Event::ServerDown {
             lab_id: lab_id.clone(),
             reason: "box was stopped after the run".to_string(),

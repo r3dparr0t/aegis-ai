@@ -1,8 +1,8 @@
 // src/config.rs
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     #[serde(default)]
     pub server: ServerConfig,
@@ -10,7 +10,7 @@ pub struct Config {
     pub paths: PathsConfig,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ServerConfig {
     #[serde(default = "default_host")]
     pub host: String,
@@ -20,7 +20,7 @@ pub struct ServerConfig {
     pub auto_manage_box: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PathsConfig {
     #[serde(default = "default_labs_dir")]
     pub labs_dir: PathBuf,

@@ -1,27 +1,41 @@
-use std::{collections::HashMap, sync::{Arc, Mutex}};
+// src/web/state.rs
+use std::{collections::HashMap, sync::{Arc, Mutex}, sync::atomic::AtomicBool};
 use serde::Serialize;
-use crate::events::{EngineObserver, Event};
-use crate::labs::RunLock;
+use crate::{
+    events::{EngineObserver, Event},
+    labs::RunLock,
+};
+
 #[derive(Clone, Debug, Serialize)]
 pub struct LogLine {
     pub time: u64,
     pub icon: String,
     pub text: String,
-    pub kind: String,   // "info" / "pass" / "fail" / "state"
+    pub kind: String,
 }
 
-/// فقط لاگ زنده‌ی رویدادها. وضعیت هر Lab دیگه این‌جا نگهداری نمی‌شه —
-/// منبع حقیقتِ وضعیت خودِ Lab (`Lab::state()`) ـه، نه این ساختار.
 pub struct WebState {
     pub log: Vec<LogLine>,
-    pub server_up: HashMap<String, bool>,   // lab_id → up?
+    pub server_up: HashMap<String, bool>,
+
+    // ★ Settings — منبع حقیقت runtime
+    pub auto_manage_box: Arc<AtomicBool>,
+    pub host: String,
+    pub port: u16,
+    pub boot_host: String,
+    pub boot_port: u16,
 }
 
 impl WebState {
-   pub fn new() -> Self {
+    pub fn new(auto_manage_box: Arc<AtomicBool>, host: String, port: u16) -> Self {
         Self {
             log: Vec::new(),
             server_up: HashMap::new(),
+            auto_manage_box,
+            host: host.clone(),
+            port,
+            boot_host: host,
+            boot_port: port,
         }
     }
 
@@ -35,21 +49,23 @@ impl WebState {
 }
 
 impl Default for WebState {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new(Arc::new(AtomicBool::new(true)), "127.0.0.1".to_string(), 7777)
+    }
 }
 
 pub type SharedWebState = Arc<Mutex<WebState>>;
 
-/// Observer که eventها رو به لاگ زنده‌ی WebState می‌ریزه، و برای
-/// `AttemptStarted` (که lab_id نداره) progress رو روی همون Labـی که
-/// `run_lock` بهش اشاره می‌کنه آپدیت می‌کنه.
 pub struct WebStateObserver {
     pub state: SharedWebState,
     pub run_lock: RunLock,
 }
 
+// ★★★ بدنه‌ی on_event دقیقاً مثل قبل — دست‌نخورده.
 impl EngineObserver for WebStateObserver {
     fn on_event(&self, event: Event) {
+        // ... همون کد قبلی، بدون هیچ تغییری ...
+        // (کل match از Event::LabStarted تا Event::LabSkipped را عیناً نگه دار)
         let mut s = self.state.lock().unwrap();
         match &event {
             Event::LabStarted { .. } => {}
@@ -63,16 +79,10 @@ impl EngineObserver for WebStateObserver {
                 if *count > 0 { s.push("🧠", format!("{} lesson(s)", count), "info"); }
             }
             Event::HintsActive { messages, .. } => {
-                for m in messages {
-                    s.push("💡", m.chars().take(120).collect::<String>(), "info");
-                }
+                for m in messages { s.push("💡", m.chars().take(120).collect::<String>(), "info"); }
             }
             Event::ModelFallback { attempt, from_model, to_model } => {
-                s.push(
-                    "🔀",
-                    format!("fallback (attempt {}): {} → {}", attempt, from_model, to_model),
-                    "state",
-                );
+                s.push("🔀", format!("fallback (attempt {}): {} → {}", attempt, from_model, to_model), "state");
             }
             Event::LlmResponded { raw, latency_ms } => {
                 s.push("📥", format!("LLM {}ms: {}", latency_ms, raw.chars().take(80).collect::<String>()), "info");
@@ -90,56 +100,36 @@ impl EngineObserver for WebStateObserver {
             Event::EvaluationFailed { category, .. } => s.push("❌", format!("FAILED [{}]", category), "fail"),
             Event::LessonSaved { text, .. } => s.push("💾", text.chars().take(100).collect::<String>(), "info"),
             Event::LabFinished { success, attempts, .. } => {
-                // خودِ وضعیت Lab توسط Lab::finish (که runner.rs صدا می‌زنه) ست
-                // می‌شه — این‌جا فقط لاگ می‌کنیم.
                 let v = if *success { "✅" } else { "❌" };
                 s.push(v, format!("finished after {} attempt(s)", attempts), "state");
             }
             Event::LlmCalling => {}
             Event::Error { context, message, fatal } => {
-                s.push(
-                    if *fatal { "💥" } else { "⚠️" },
-                    format!("[{}] {}", context, message.chars().take(120).collect::<String>()),
-                    if *fatal { "fail" } else { "info" },
-                );
+                s.push(if *fatal { "💥" } else { "⚠️" },
+                       format!("[{}] {}", context, message.chars().take(120).collect::<String>()),
+                       if *fatal { "fail" } else { "info" });
             }
             Event::State { .. } => {}
-            Event::BoxUp { compose_dir } => {
-                s.push("🐳", format!("box up: {}", compose_dir), "state");
-            }
-            Event::BoxDown { compose_dir } => {
-                s.push("🐳", format!("box down: {}", compose_dir), "state");
-            }
-            Event::SetupCommandStarted { service } => {
-                s.push("🔧", format!("setup running in '{}'", service), "info");
-            }
+            Event::BoxUp { compose_dir } => s.push("🐳", format!("box up: {}", compose_dir), "state"),
+            Event::BoxDown { compose_dir } => s.push("🐳", format!("box down: {}", compose_dir), "state"),
+            Event::SetupCommandStarted { service } => s.push("🔧", format!("setup running in '{}'", service), "info"),
             Event::SetupCommandFinished { service, success, excerpt } => {
-                s.push(
-                    if *success { "🔧" } else { "⚠️" },
-                    format!(
-                        "setup {}: {}",
-                        service,
-                        excerpt.chars().take(100).collect::<String>()
-                    ),
-                    if *success { "info" } else { "fail" },
-                );
+                s.push(if *success { "🔧" } else { "⚠️" },
+                       format!("setup {}: {}", service, excerpt.chars().take(100).collect::<String>()),
+                       if *success { "info" } else { "fail" });
             }
             Event::BoxStarting { action, compose_dir } => {
                 s.push("🐳", format!("→ {} — {}", action, compose_dir), "state");
             }
             Event::BoxOutput { stream, line, .. } => {
-                // خطوط docker رو با truncate کوتاه نگه می‌داریم تا log شلوغ نشه
                 let truncated: String = line.chars().take(300).collect();
                 let icon = if stream == "stderr" { "⚠️" } else { "🐳" };
                 s.push(icon, truncated, "box");
             }
             Event::BoxFinished { action, success, .. } => {
                 let v = if *success { "✓" } else { "✗" };
-                s.push(
-                    "🐳",
-                    format!("{} {} finished", v, action),
-                    if *success { "state" } else { "fail" },
-                );
+                s.push("🐳", format!("{} {} finished", v, action),
+                       if *success { "state" } else { "fail" });
             }
             Event::ServerUp { lab_id } => {
                 s.server_up.insert(lab_id.clone(), true);
@@ -147,24 +137,15 @@ impl EngineObserver for WebStateObserver {
             }
             Event::ServerDown { lab_id, reason } => {
                 s.server_up.insert(lab_id.clone(), false);
-                s.push(
-                    "🔴",
-                    format!("server down: {} — {}", lab_id, reason.chars().take(80).collect::<String>()),
-                    "fail",
-                );
+                s.push("🔴", format!("server down: {} — {}", lab_id, reason.chars().take(80).collect::<String>()), "fail");
             }
             Event::LabSkipped { lab_id, reason } => {
-                s.push(
-                    "⏭",
-                    format!("{} skipped: {}", lab_id, reason.chars().take(80).collect::<String>()),
-                    "fail",
-                );
+                s.push("⏭", format!("{} skipped: {}", lab_id, reason.chars().take(80).collect::<String>()), "fail");
             }
         }
     }
 }
 
-/// Observer ترکیبی: هم console، هم web.
 pub struct CompositeObserver {
     pub console: crate::events::ConsoleObserver,
     pub web: WebStateObserver,

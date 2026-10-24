@@ -688,3 +688,94 @@ pub async fn reload_labs(State(app): State<AppCtx>) -> impl IntoResponse {
     )
         .into_response()
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Server settings
+// ═══════════════════════════════════════════════════════════════
+
+pub async fn get_settings(State(app): State<AppCtx>) -> impl IntoResponse {
+    let ws = app.state.lock().unwrap();
+    let restart_required = ws.host != ws.boot_host || ws.port != ws.boot_port;
+    let config_path = std::env::var("AEGIS_CONFIG")
+        .unwrap_or_else(|_| "aegis.toml".to_string());
+    Json(json!({
+        "host": ws.host,
+        "port": ws.port,
+        "auto_manage_box": ws.auto_manage_box.load(std::sync::atomic::Ordering::Relaxed),
+        "boot_host": ws.boot_host,
+        "boot_port": ws.boot_port,
+        "restart_required": restart_required,
+        "config_path": config_path,
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateSettings {
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub auto_manage_box: Option<bool>,
+}
+
+pub async fn update_settings(
+    State(app): State<AppCtx>,
+    Json(payload): Json<UpdateSettings>,
+) -> impl IntoResponse {
+    // ── اعتبارسنجی ورودی
+    let new_host = match payload.host {
+        Some(h) => {
+            let h = h.trim().to_string();
+            if h.is_empty() {
+                return (StatusCode::BAD_REQUEST, "host is empty").into_response();
+            }
+            Some(h)
+        }
+        None => None,
+    };
+    let new_port = match payload.port {
+        Some(p) => {
+            if p == 0 {
+                return (StatusCode::BAD_REQUEST, "port must be 1–65535").into_response();
+            }
+            Some(p)
+        }
+        None => None,
+    };
+
+    // ── اعمال + ساخت config جدید
+    let mut new_cfg = (*app.config).clone();
+    let restart_required;
+    {
+        let mut ws = app.state.lock().unwrap();
+
+        if let Some(h) = new_host { ws.host = h; }
+        if let Some(p) = new_port { ws.port = p; }
+        if let Some(a) = payload.auto_manage_box {
+            ws.auto_manage_box.store(a, std::sync::atomic::Ordering::Relaxed);
+        }
+
+        new_cfg.server.host = ws.host.clone();
+        new_cfg.server.port = ws.port;
+        new_cfg.server.auto_manage_box =
+            ws.auto_manage_box.load(std::sync::atomic::Ordering::Relaxed);
+
+        restart_required = ws.host != ws.boot_host || ws.port != ws.boot_port;
+    }
+
+    // ── persist به aegis.toml
+    let config_path = std::env::var("AEGIS_CONFIG")
+        .unwrap_or_else(|_| "aegis.toml".to_string());
+    let toml_str = match toml::to_string_pretty(&new_cfg) {
+        Ok(s) => s,
+        Err(e) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, format!("serialize: {}", e)).into_response();
+        }
+    };
+    if let Err(e) = std::fs::write(&config_path, toml_str) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, format!("write: {}", e)).into_response();
+    }
+
+    Json(json!({
+        "saved": true,
+        "restart_required": restart_required,
+    })).into_response()
+}
