@@ -51,6 +51,9 @@ from the real target count.
 - **Episodic memory (SQLite)** — every execution, attempt, and lesson is stored and queryable.
 - **Task-scoped memory** — lessons for `ssrf_ip_encoding_bypass` don't leak into `ssrf_webhook_blacklist`.
 - **YAML-driven labs** — adding a new lab is one file, zero Rust changes.
+- **Optional per-lab shell execution** — a lab can expose a single fixed script to the
+  model via `{{shell_output [...]}}` placeholders. The script path is set in YAML and
+  never taken from model output; arguments are passed as argv, not via a shell.
 - **Multi-provider LLM transport** — Ollama, OpenAI-compatible (OpenAI, DeepSeek, Groq, …), TypeSafe.
 - **Auto-discovery of API keys** — reads `.env` × `providers.toml` and lists what's available.
 - **Deterministic transforms via LLM intent** — the model chooses *what* (`"ip_encoding": "hex"`), Rust does the math.
@@ -142,6 +145,79 @@ evaluator:
   kind: regex
   pattern: "(root:.*:0:0:|uid=\\d+\\([a-z0-9_]+\\))"
 ```
+
+For multi-step CVEs whose payload contains large base64 blobs (e.g.
+CVE-2021-3129 — Laravel Ignition RCE), a lab can optionally enable the
+**shell block** (see below) so the model can call a fixed helper script to
+generate the blob dynamically, instead of hard-coding it in the YAML.
+
+---
+
+## Shell Execution (optional)
+
+Some exploits — log-poisoning chains, PHAR deserialization, anything that
+needs a large dynamically-generated blob — are brittle when the entire
+payload has to be baked into the YAML. The optional `shell` block lets a
+lab expose **one fixed script** to the model. The model can then ask Aegis
+to run that script with its own arguments, and Aegis substitutes the real
+script output back into the model's response.
+
+### YAML
+
+```yaml
+shell:
+  script_path: "/abs/path/to/helper.py"   # must exist and be executable
+  timeout_secs: 15
+```
+
+If the `shell` block is absent, the lab behaves exactly as before — the
+model's prompt is unchanged, no shell-related instruction is injected, and
+no script is ever spawned.
+
+### Placeholder contract
+
+When `shell` is configured, Aegis appends an instruction block to the
+system prompt telling the model to emit exactly **one** placeholder of the
+form:
+
+```
+{{shell_output ["arg1", "arg2", ...]}}
+```
+
+**Inside a JSON string value of the response**, e.g.:
+
+```json
+{"method":"POST","path":"/exec","body":"{{shell_output [\"id\"]}}"}
+```
+
+### What Aegis guarantees
+
+- **Script path is fixed.** It comes from the YAML, is validated at lab
+  load time (exists + executable), and is never taken from model output.
+- **No shell interpretation of arguments.** The model's strings are passed
+  to the script as `argv` — `Command::new(script).args(&args)` — not through
+  `sh -c`. No metacharacters, no globbing, no substitution.
+- **One call per attempt.** If the model emits more than one placeholder in
+  a single response, **none** are executed and the attempt is consumed
+  (a `shell_failed` lesson is recorded for the next attempt).
+- **JSON-safe substitution.** The script's stdout is passed through
+  `serde_json::to_string` before being spliced into the response, so quotes,
+  backslashes, newlines, tabs, and control bytes all survive as valid JSON.
+- **Real timeout.** The script runs in its own process group
+  (`process_group(0)` on Unix). On timeout, `SIGKILL` is sent to the whole
+  group, so grandchildren (e.g. a `sleep` inside a wrapper) are killed too.
+- **No new attempt, no separate evaluator.** The substituted response flows
+  through the existing pipeline (`extract_json_object` → `apply_transforms`
+  → `TargetExecutor` → `Evaluator`). Shell calls are never sent to the
+  evaluator and never count as their own attempt.
+
+A worked example: a Laravel Ignition CVE lab can hard-code the four
+execute-solution requests, but put `{{shell_output ["id"]}}` in the step
+whose body carries the base64 PHAR. A tiny helper script
+(`phpggc -f -b Monolog/RCE1 system id`) generates the blob; Aegis splices
+it in; the same 4-step chain runs; the regex evaluator looks at the final
+HTTP response.
+
 ---
 
 ## Adding a Lab
@@ -174,6 +250,11 @@ evaluator:
   kind: flag
   marker: "FLAG{"
 
+# Optional — only for labs that need a fixed helper script.
+# shell:
+#   script_path: "/abs/path/to/helper.py"
+#   timeout_secs: 15
+
 system_prompt: |
   You are an automated SSRF exploitation agent testing a lab API.
   ...
@@ -183,12 +264,16 @@ Restart the app, and the new lab appears in the sidebar. No code changes.
 
 ### Placeholders in prompts and goals
 
-| Placeholder | Expands to |
-|---|---|
-| `{{target_url}}` | `http://host:port/path` |
-| `{{target_host}}` | `host` |
-| `{{target_port}}` | `port` |
-| `{{target_path}}` | `path` |
+| Placeholder | Expands to | Where it's resolved |
+|---|---|---|
+| `{{target_url}}` | `http://host:port/path` | When rendering `system_prompt` / `default_goal` |
+| `{{target_host}}` | `host` | same |
+| `{{target_port}}` | `port` | same |
+| `{{target_path}}` | `path` | same |
+| `{{shell_output [...]}}` | Real script stdout (JSON-escaped) | **In the model's response, on every attempt**, when `shell` is configured |
+
+The first four are filled in **before** the prompt is sent. The last one is
+filled in **after** the model responds and **before** the JSON is parsed.
 
 ### Evaluators
 
@@ -202,6 +287,12 @@ evaluator:
 evaluator:
   kind: time_delay
   threshold_ms: 2500     # success = response latency ≥ threshold
+```
+
+```yaml
+evaluator:
+  kind: regex
+  pattern: 'uid=\d+\([a-zA-Z0-9_-]+\)'   # success = regex matches the response body
 ```
 
 ---
@@ -230,14 +321,16 @@ src/
 │   └── state.rs          ExecutionState (Preparing, Generating, Executing, …)
 ├── executor/
 │   ├── http.rs           HTTP transport
+│   ├── raw.rs            Raw TCP transport (byte-for-byte, for CVEs)
 │   ├── json.rs           LLM output parsing (handles </think>, fences, noise)
 │   ├── payload.rs        Interprets `ip_encoding` and rewrites the payload
-│   └── ip.rs             IPv4 → decimal / hex / octal (pure functions)
+│   ├── ip.rs             IPv4 → decimal / hex / octal (pure functions)
+│   └── shell.rs          Optional per-lab script execution
 ├── evaluator/        FlagEvaluator, TimeDelayEvaluator, RegexEvaluator
 ├── provider/         OllamaProvider, OpenAiCompatibleProvider, TypesafeProvider
 ├── memory/           SQLite repo: executions, attempts, lessons, lesson_usage
 ├── labs/
-│   ├── spec.rs       YAML schema (LabSpec)
+│   ├── spec.rs       YAML schema (LabSpec, ShellSpec)
 │   ├── lab.rs        Lab = spec + state; encapsulates everything lab-specific
 │   ├── registry.rs   Load all YAMLs from labs/
 │   └── runner.rs     Orchestration; owns the global run lock
@@ -248,6 +341,7 @@ src/
     └── handlers.rs   REST + WebSocket handlers
 
 labs/                YAML lab definitions (edited at runtime from the web panel)
+scripts/             Optional helper scripts for labs with `shell:` configured
 static/index.html    Single-file web UI
 reports/             Generated JSON + Markdown reports
 migrations/          SQLite schema
@@ -260,6 +354,7 @@ migrations/          SQLite schema
 - **`Evaluator`** — `evaluate(EvaluationInput) -> EvaluationResult`. Decides pass/fail.
 - **`EngineObserver`** — `on_event(Event)`. The CLI, Web panel, and any future consumer subscribe to the same stream.
 - **`Lab`** — one immutable `spec` (from YAML) + one `Mutex<LabState>`. The single source of truth for lab state.
+- **`ShellRuntime`** — `process_response(raw) -> (modified, Option<ShellCall>)`. Validates the configured script once at lab load; on each attempt, finds placeholders, executes at most one, and returns the JSON-escaped substitution. Never spawned for labs without a `shell:` block.
 
 ---
 
@@ -303,8 +398,9 @@ Add a provider here without recompiling.
 - [x] Per-lab state + global run lock
 - [x] Live YAML editing from the web panel
 - [x] Model switcher in the web panel
-- [ ] **Vulhub integration** — turn real CVEs into YAML labs
-- [ ] Generalized HTTP executor (headers, raw body, query params, method)
+- [x] **Optional per-lab shell execution** (fixed script, model-issued placeholders)
+- [x] **Vulhub integration** — turn real CVEs into YAML labs
+- [x] Generalized HTTP executor (headers, raw body, query params, method)
 - [ ] Out-of-band evaluator (DNS/HTTP callback)
 - [ ] Multi-lab queue (run-all with real sequencing)
 - [ ] Anthropic + Gemini providers
