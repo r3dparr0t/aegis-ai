@@ -19,7 +19,7 @@ pub fn apply_transforms(payload: &mut Value) -> Result<Vec<TransformApplied>, St
     if let Some(a) = apply_base64(payload)? { applied.push(a); }
     Ok(applied)
 }
-
+// "ip_encoding": "<decimal|hex|octal>" is placeholder
 fn apply_ip_encoding(payload: &mut Value) -> Result<Option<TransformApplied>, String> {
     let Some(fmt_val) = payload.get("ip_encoding") else { return Ok(None) };
     let fmt_str = fmt_val.as_str()
@@ -36,7 +36,7 @@ fn apply_ip_encoding(payload: &mut Value) -> Result<Option<TransformApplied>, St
 
     Ok(Some(TransformApplied { field: "ip_encoding", value: fmt_str }))
 }
-
+// base64-decode is placeholder
 fn apply_base64(payload: &mut Value) -> Result<Option<TransformApplied>, String> {
     let Some(field_val) = payload.get("base64_field") else { return Ok(None) };
     let field_name: String = field_val.as_str()
