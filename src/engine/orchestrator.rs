@@ -8,7 +8,7 @@ use crate::{
 	engine::state::ExecutionState,
 	memory::SqliteMemoryRepository, 
     executor:: {json::{extract_json_object, strip_code_fences},
-        payload::apply_transforms},
+        payload::apply_transforms, shell::ShellRuntime},
     events::{ConsoleObserver, Event, SharedObserver},
     provider::OllamaProvider,
 };
@@ -59,6 +59,9 @@ pub struct EngineConfig {
     pub hints: Vec<Hint>,
     pub fallback: Option<FallbackStrategy>,
     pub cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// اختیاری — اگر Lab تنظیم Shell داشته باشد، اینجا Some می‌شود.
+    /// هیچ تغییری در لب‌های بدون shell ایجاد نمی‌کند.
+    pub shell: Option<ShellRuntime>,
 }
 
 struct AppliedLesson {
@@ -309,7 +312,7 @@ impl ExecutionEngine {
             // LLM call
             // -------------------------------------------------------------------
             self.state(ExecutionState::Generating);
-            let response = tokio::select! {
+            let mut response = tokio::select! {
                 res = active_provider.generate(&request) => {
                     match res {
                         Ok(r) => r,
@@ -335,6 +338,47 @@ impl ExecutionEngine {
                 raw: response.output.clone(),
                 latency_ms: response.latency_ms,
             });
+            
+            // ─── Shell Processing (قبل از extract_json_object) ───
+            if let Some(shell) = &self.config.shell {
+                let crate::executor::shell::ProcessedResponse { modified, shell_call } =
+                    shell.process_response(&response.output).await;
+                match shell_call {
+                    Some(call) => match call.result {
+                        Ok(r) => {
+                            eprintln!(
+                                "[SHELL] executed args={:?} exit={:?} stdout={}B",
+                                call.args, r.exit_code, r.stdout.len()
+                            );
+                            response.output = modified;
+                        }
+                        Err(e) => {
+                            self.emit_error("shell", e.to_string(), false);
+                            let eval_result = EvaluationResult {
+                                is_valid: false,
+                                error: Some(EvaluationError::Custom("shell_failed".into())),
+                                error_details: Some(e.to_string()),
+                            };
+                            self.record_attempt_and_learn(
+                                &execution_id,
+                                current_attempt,
+                                &request,
+                                &response,
+                                &eval_result,
+                                &lesson_ids_used_this_attempt,
+                                &mut accumulated_lessons,
+                            )
+                            .await?;
+                            current_attempt += 1;
+                            continue;
+                        }
+                    },
+                    None => {
+                        // بدون Placeholder → response دست‌نخورده.
+                    }
+                }
+            }
+
             self.state(ExecutionState::Evaluating {
                 subject: "model output structure",
                 preview: response.output.chars().take(80).collect(),

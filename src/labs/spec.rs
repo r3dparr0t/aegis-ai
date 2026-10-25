@@ -42,7 +42,26 @@ pub struct LabSpec {
     pub fallback_strategy: Option<FallbackSpec>,
     #[serde(default, rename = "box")]
     pub dbox: Option<BoxSpec>,
+    // در struct LabSpec، بلافاصله پس از `pub dbox: Option<BoxSpec>,` این را اضافه کن:
+    /// اختیاری — اگر تنظیم شود، مدل می‌تواند یک اسکریپت ثابت را با
+    /// آرگومان‌های خودش در همان Attempt اجرا کند. اگر غایب باشد، رفتار
+    /// لب دقیقاً مثل قبل است (نه در prompt، نه در اجرا).
+    #[serde(default)]
+    pub shell: Option<ShellSpec>,
 }
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ShellSpec {
+    /// مسیر اسکریپت مجاز. فقط از این‌جا خوانده می‌شود؛ مدل هرگز
+    /// نمی‌تواند آن را تعیین یا تغییر دهد.
+    pub script_path: String,
+    /// حداکثر زمان مجاز اجرا. در زمان اجرای واقعی اعمال می‌شود
+    /// (کشتن گروه فرایند). پیش‌فرض ۳۰ ثانیه.
+    #[serde(default = "default_shell_timeout")]
+    pub timeout_secs: u64,
+}
+
+fn default_shell_timeout() -> u64 { 30 }
 
 /// `after_attempt: 3` یعنی: *بعد از* شکست‌خوردنِ کامل تلاش شماره‌ی ۳ (یعنی
 /// شروع از تلاش ۴ به بعد)، این متن به system_prompt اضافه می‌شه. تا وقتی لب

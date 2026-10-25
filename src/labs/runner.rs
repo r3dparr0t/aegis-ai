@@ -68,6 +68,20 @@ pub async fn run_locked(
         return;
     }
 
+    if let Some(shell) = &lab.spec().shell {
+        if let Err(e) = crate::executor::shell::ShellRuntime::new(
+            &shell.script_path,
+            shell.timeout_secs,
+        ) {
+            eprintln!("❌ Lab '{}' has invalid shell config: {}", lab.id(), e);
+            ctx.observer.on_event(Event::LabSkipped {
+                lab_id: lab.id(),
+                reason: format!("invalid shell config: {}", e),
+            });
+            Lab::finish_untouched(lab, &ctx.run_lock);
+            return;
+        }
+    }
     let (should_fuzz, owns_box) = match preflight {
         PreflightResult::AlreadyUp => {
             ctx.observer.on_event(Event::ServerUp { lab_id: lab_id.clone() });
@@ -126,9 +140,8 @@ async fn execute_lab(
     let executor = lab.build_executor()?;
     let evaluator = lab.build_evaluator();
     let task_type = lab.effective_task_type();
-    let mut config = lab.build_config(task_type);
+   let mut config = lab.build_config(task_type)?;
     config.cancel = Some(ctx.cancel.clone());
-
     let system_prompt = lab.render_system_prompt(&ctx.prefix);
     let user_input = goal.unwrap_or_else(|| lab.default_goal());
 
