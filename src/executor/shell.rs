@@ -1,13 +1,16 @@
 // src/executor/shell.rs
-//! اجرای کنترل‌شده‌ی اسکریپت Shell بر اساس Placeholder در پاسخ مدل.
-//!
 //! قرارداد Placeholder:  {{shell_output ["arg1", "arg2", ...]}}
-//! - داخل یک مقدار رشته‌ای JSON قرار می‌گیرد (طبق prompt).
-//! - فقط اولین Placeholder اجرا می‌شود؛ اگر بیش از یکی باشد، هیچ‌کدام اجرا نمی‌شود.
-//! - خروجی به‌صورت JSON-escape جایگزین می‌شود تا JSON معتبر باقی بماند.
+//!
+//! - **داخل** یک مقدار رشته‌ای JSON → خروجی JSON-escaped در همان رشته
+//!   درج می‌شود (مثل قبل).
+//! - **بیرون** از هر رشته (به‌عنوان یه مقدار JSON خالی) → خروجی **بدون
+//!   escape** (بعد از trim فضای سفید) درج می‌شود. اسکریپت باید خودش JSON
+//!   معتبر (object/array/number/bool/null) چاپ کند.
+//!
+//! - فقط اولین Placeholder اجرا می‌شود؛ اگر بیش از یکی باشد، هیچ‌کدام.
 //! - مسیر اسکریپت هرگز از پاسخ مدل خوانده نمی‌شود.
 
-use std::{path::PathBuf,process::Stdio,time::Duration};
+use std::{path::PathBuf, process::Stdio, time::Duration};
 use tokio::process::Command;
 
 const PLACEHOLDER_START: &str = "{{shell_output";
@@ -17,31 +20,31 @@ pub const SHELL_INSTRUCTION: &str = r#"
 ### SHELL EXECUTION (available)
 
 You have ONE shell execution available per attempt. To request it, write exactly
-one placeholder of this form INSIDE A JSON STRING VALUE of your response:
+one placeholder of this form:
 
   {{shell_output ["arg1", "arg2", ...]}}
 
+The content inside MUST be a valid JSON array of strings. These strings are
+passed as argv directly to a fixed script on the host. They are NOT interpreted
+by a shell — no metacharacters, no globbing.
+
+WHERE the placeholder goes determines how stdout is spliced in:
+
+1. INSIDE a JSON string value:
+     {"body":"{{shell_output [\"id\"]}}"}
+   stdout is JSON-escaped (newlines → \n, quotes → \", etc.) and inserted
+   into the string. Use when the placeholder supplies a scalar string.
+
+2. OUTSIDE any JSON string, as a bare JSON value:
+     {"requests": {{shell_output ["id"]}}}
+   stdout is inserted VERBATIM (trailing whitespace trimmed). The script MUST
+   therefore print valid JSON (object, array, number, true/false, null). Use
+   when the placeholder supplies an entire JSON structure.
+
 Rules:
-- The placeholder MUST appear inside a JSON string, not as a bare JSON value.
-  Example:  {"method":"POST","path":"/exec","body":"{{shell_output [\"id\"]}}"}
-- The content inside {{shell_output ... }} MUST be a valid JSON array of strings.
-  These strings are passed as argv directly to a fixed script on the host.
-  They are NOT interpreted by a shell — no metacharacters, no globbing.
-- Emit AT MOST ONE placeholder per response. If you emit more than one,
-  NONE of them will be executed and the attempt will be wasted.
-- After Aegis runs the script, the ENTIRE placeholder (from "{{" to "}}") is
-  replaced by the script's real stdout, JSON-escaped (newlines become \n,
-  quotes become \", etc.). Your response must remain valid JSON after this
-  substitution.
-- Use this only when the payload you want to send depends on host-side
-  information (for example, running "id" to embed its output).
-
-Example valid response body:
-  {"method":"POST","path":"/exec","body":"{{shell_output [\"id\"]}}"}
-
-After execution of "id", Aegis substitutes the placeholder, and your payload
-becomes:
-  {"method":"POST","path":"/exec","body":"uid=0(root) gid=0(root) ..."}
+- Emit AT MOST ONE placeholder per response. More than one → NONE execute.
+- Response must remain valid JSON after substitution.
+- Script exits 0 for its output to be used.
 "#;
 
 #[derive(Debug)]
@@ -157,16 +160,18 @@ impl ShellRuntime {
                     }
                 };
                 let result = self.execute(&args).await;
+                let inside = is_inside_json_string(raw, span.start);
                 let replacement = match &result {
-                    Ok(r) => json_escape(&r.stdout),
+                    Ok(r) => {
+                        if inside {
+                            json_escape(&r.stdout) // مثل قبل
+                        } else {
+                            r.stdout.trim().to_string() // RAW — اسکریپت خودش JSON داده
+                        }
+                    }
                     Err(_) => String::new(),
                 };
-                let modified = format!(
-                    "{}{}{}",
-                    &raw[..span.start],
-                    replacement,
-                    &raw[span.end..]
-                );
+                let modified = format!("{}{}{}", &raw[..span.start], replacement, &raw[span.end..]);
                 ProcessedResponse {
                     modified,
                     shell_call: Some(ShellCallSummary { args, result }),
@@ -208,9 +213,16 @@ impl ShellRuntime {
                 let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
                 let exit_code = output.status.code();
                 if output.status.success() {
-                    Ok(ShellResult { stdout, stderr, exit_code })
+                    Ok(ShellResult {
+                        stdout,
+                        stderr,
+                        exit_code,
+                    })
                 } else {
-                    Err(ShellError::NonZeroExit { code: exit_code, stderr })
+                    Err(ShellError::NonZeroExit {
+                        code: exit_code,
+                        stderr,
+                    })
                 }
             }
             Ok(Err(e)) => Err(ShellError::SpawnFailed(e.to_string())),
@@ -265,18 +277,22 @@ fn unescape_one_level(s: &str) -> String {
     while let Some(c) = iter.next() {
         if c == '\\' {
             match iter.next() {
-                Some('"')  => out.push('"'),
+                Some('"') => out.push('"'),
                 Some('\\') => out.push('\\'),
-                Some('n')  => out.push('\n'),
-                Some('t')  => out.push('\t'),
-                Some('r')  => out.push('\r'),
-                Some('b')  => out.push('\u{0008}'),
-                Some('f')  => out.push('\u{000C}'),
-                Some('u')  => {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some('r') => out.push('\r'),
+                Some('b') => out.push('\u{0008}'),
+                Some('f') => out.push('\u{000C}'),
+                Some('u') => {
                     // \uXXXX — چهار رقم هگز
                     let mut hex = String::new();
                     for _ in 0..4 {
-                        if let Some(h) = iter.next() { hex.push(h); } else { break; }
+                        if let Some(h) = iter.next() {
+                            hex.push(h);
+                        } else {
+                            break;
+                        }
                     }
                     if let Ok(cp) = u32::from_str_radix(&hex, 16) {
                         if let Some(ch) = char::from_u32(cp) {
@@ -339,9 +355,49 @@ pub fn json_escape(s: &str) -> String {
     }
 }
 
+/// آیا موقعیت `pos` داخل یک رشته‌ی JSON است؟
+/// با شمارش کوتیشن‌های escape‌نشده تا `pos` (فرد = داخل، زوج = خارج).
+fn is_inside_json_string(text: &str, pos: usize) -> bool {
+    let mut depth: u32 = 0;
+    let mut escaped = false;
+    for c in text[..pos].chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if c == '\\' {
+            escaped = true;
+            continue;
+        }
+        if c == '"' {
+            depth += 1;
+        }
+    }
+    depth % 2 == 1
+}
 // ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
+#[tokio::test]
+#[cfg(unix)]
+async fn bare_placeholder_inserts_raw_stdout() {
+    use std::os::unix::fs::PermissionsExt;
+    let script = std::env::temp_dir().join(format!(
+        "aegis_bare_ph_{}.sh", std::process::id()
+    ));
+    std::fs::write(&script, "#!/bin/sh\nprintf '%s' '[{\"a\":1},{\"b\":2}]'\n").unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let rt = ShellRuntime::new(&script, 5).unwrap();
+    let raw = r#"{"requests": {{shell_output ["ignored"]}}}"#;
+    let out = rt.process_response(raw).await;
+    assert!(out.shell_call.unwrap().result.is_ok());
+    assert_eq!(out.modified, r#"{"requests": [{"a":1},{"b":2}]}"#);
+    let _: serde_json::Value = serde_json::from_str(&out.modified).unwrap();
+    let _ = std::fs::remove_file(&script);
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -437,18 +493,12 @@ mod tests {
 
     #[test]
     fn parse_zero_escapes_still_works() {
-        assert_eq!(
-            parse_placeholder_args(r#"["id"]"#).unwrap(),
-            vec!["id"]
-        );
+        assert_eq!(parse_placeholder_args(r#"["id"]"#).unwrap(), vec!["id"]);
     }
 
     #[test]
     fn parse_single_escape_still_works() {
-        assert_eq!(
-            parse_placeholder_args(r#"[\"id\"]"#).unwrap(),
-            vec!["id"]
-        );
+        assert_eq!(parse_placeholder_args(r#"[\"id\"]"#).unwrap(), vec!["id"]);
     }
 
     #[tokio::test]
@@ -469,7 +519,10 @@ mod tests {
         let out = rt.process_response(text).await;
         assert_eq!(out.modified, text); // unchanged
         let call = out.shell_call.unwrap();
-        assert!(matches!(call.result, Err(ShellError::MultiplePlaceholders(2))));
+        assert!(matches!(
+            call.result,
+            Err(ShellError::MultiplePlaceholders(2))
+        ));
     }
 
     #[tokio::test]
@@ -498,14 +551,10 @@ mod tests {
     async fn timeout_kills_child_and_grandchild() {
         use std::os::unix::fs::PermissionsExt;
 
-        let marker = std::env::temp_dir().join(format!(
-            "aegis_shell_marker_{}.txt",
-            std::process::id()
-        ));
-        let script = std::env::temp_dir().join(format!(
-            "aegis_shell_script_{}.sh",
-            std::process::id()
-        ));
+        let marker =
+            std::env::temp_dir().join(format!("aegis_shell_marker_{}.txt", std::process::id()));
+        let script =
+            std::env::temp_dir().join(format!("aegis_shell_script_{}.sh", std::process::id()));
         let _ = std::fs::remove_file(&marker);
         std::fs::write(
             &script,

