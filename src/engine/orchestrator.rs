@@ -3,7 +3,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
-    domain::{EngineError, EvaluationError, EvaluationInput, EvaluationResult, Evaluator, LessonUsage,
+    domain::{EngineError, EvaluationError, EvaluationInput, EvaluationResult, Evaluator, ExecutorError, LessonUsage,
 		LlmProvider, LlmRequest, LlmResponse, MemoryQuery, TargetExecutor,},
 	engine::state::ExecutionState,
 	memory::SqliteMemoryRepository, 
@@ -525,10 +525,17 @@ impl ExecutionEngine {
                     match res {
                         Ok(o) => o,
                         Err(err) => {
+                            let category = match &err {
+                                ExecutorError::Network(_) => EvaluationError::Custom("executor_network_error".into()),
+                                ExecutorError::InvalidPayload(_) => EvaluationError::Custom("executor_invalid_payload".into()),
+                                ExecutorError::UnknownEndpoint(_) => EvaluationError::Custom("executor_unknown_endpoint".into()),
+                                ExecutorError::StepFailed { step, total, .. } =>
+                                    EvaluationError::Custom(format!("executor_step_failed:{step}_of_{total}")),
+                            };
                             self.emit_error("execute", format!("executor error: {}", err), false);
                             let eval_result = EvaluationResult {
                                 is_valid: false,
-                                error: Some(EvaluationError::MissingField),
+                                error: Some(category),
                                 error_details: Some(err.to_string()),
                             };
                             self.record_attempt_and_learn(
@@ -714,50 +721,90 @@ impl ExecutionEngine {
     }
 
     // -------------------------------------------------------------------
-    // بقیه — بدون تغییر
+    // build lesson by error cap details.
     // -------------------------------------------------------------------
 
     fn build_lesson_text(&self, err_cat: &EvaluationError, err_details: &str) -> String {
-        if err_details.contains("Connection refused") {
-            if let Some(port) = Self::extract_port(err_details) {
-                return format!(
-                    "AVOID ERROR: You connected to port {} and got 'Connection refused'. \
-                     That port is wrong for this internal service. Re-read the system prompt \
-                     for the exact correct port number and include it explicitly in the URL \
-                     as host:PORT (e.g. http://internal-admin:CORRECT_PORT/...).",
-                    port
-                );
-            }
-        }
-        if err_details.contains("Egress blocked") {
-            if self.config.task_type == "ssrf_ip_encoding_bypass" {
-                return "AVOID ERROR: Do NOT manually compute or write the encoded IP yourself. \
-                        You MUST use the plain dotted-quad form exactly as given in the prompt \
-                        (e.g. 172.28.0.10), and set the top-level field `ip_encoding` to one of \
-                        \"decimal\", \"hex\", or \"octal\". The engine performs the numeric \
-                        conversion before sending. Never write out an integer or hex yourself — \
-                        just the dotted-quad, plus the `ip_encoding` field."
-                    .to_string();
-            } else {
+        // ── مسیر اصلی: دیسپچ روی error_category تایپ‌شده (از evaluator/flag.rs
+        // یا نگاشت ExecutorError تو execute()), نه substring روی متن خام. ──
+        match err_cat.to_string().as_str() {
+            "egress_blocked" => {
+                if self.config.task_type == "ssrf_ip_encoding_bypass" {
+                    return "AVOID ERROR: Do NOT manually compute or write the encoded IP yourself. \
+                            You MUST use the plain dotted-quad form exactly as given in the prompt \
+                            (e.g. 172.28.0.10), and set the top-level field `ip_encoding` to one of \
+                            \"decimal\", \"hex\", or \"octal\". The engine performs the numeric \
+                            conversion before sending. Never write out an integer or hex yourself — \
+                            just the dotted-quad, plus the `ip_encoding` field."
+                        .to_string();
+                }
                 return "AVOID ERROR: You sent the request to a host the lab did not recognize. \
                         You MUST use the EXACT hostname given in the system prompt — do NOT invent \
                         an IP address and do NOT try to encode one. Re-read the prompt and use the \
                         literal host name it specifies (e.g. 'internal-admin:8080')."
                     .to_string();
             }
+            "connection_refused" => {
+                if let Some(port) = Self::extract_port(err_details) {
+                    return format!(
+                        "AVOID ERROR: You connected to port {} and got 'Connection refused'. \
+                         That port is wrong for this internal service. Re-read the system prompt \
+                         for the exact correct port number and include it explicitly in the URL \
+                         as host:PORT (e.g. http://internal-admin:CORRECT_PORT/...).",
+                        port
+                    );
+                }
+                return format!(
+                    "AVOID ERROR: Connection refused ({}). Re-read the system prompt for the \
+                     exact correct host and port for this internal service.",
+                    err_details
+                );
+            }
+            "dns_resolution_failed" => {
+                return "AVOID ERROR: The hostname you used could not be resolved. \
+                        Use the exact internal service name given in the system prompt, spelled correctly."
+                    .to_string();
+            }
+            "executor_invalid_payload" => {
+                return format!(
+                    "AVOID ERROR: Your payload did not match the shape this lab expects ({}). \
+                     Re-check the required fields named in the system prompt.",
+                    err_details
+                );
+            }
+            "executor_unknown_endpoint" => {
+                return format!(
+                    "AVOID ERROR: You requested an endpoint this lab does not allow ({}). \
+                     Use exactly one of the endpoints named in the system prompt.",
+                    err_details
+                );
+            }
+            s if s.starts_with("executor_step_failed:") => {
+                let which = &s["executor_step_failed:".len()..];
+                return format!(
+                    "AVOID ERROR: step {} of the request chain failed ({}). Check what that step \
+                     needs from the previous one (headers, tokens, extracted values) before retrying.",
+                    which, err_details
+                );
+            }
+            _ => {}
         }
+
+        // ── Fallback: مواردی که هنوز تو evaluator کلاسیفای نشدن (یعنی هنوز
+        // زیر LogicFailure/executor_network_error عمومی می‌افتن). substring
+        // matching فقط برای همین دو تا باقی مونده — TODO: این‌ها رو هم به
+        // EvaluationError::Custom مناسب تو flag.rs منتقل کن تا کلاً حذف بشه. ──
         if err_details.contains("No connection adapters were found") {
             return "AVOID ERROR: Your URL was missing a valid scheme (http:// or https://). \
                     Always include the full scheme at the start of the URL."
                 .to_string();
         }
-        if err_details.contains("Name or service not known")
-            || err_details.contains("nodename nor servname provided")
-        {
+        if err_details.contains("nodename nor servname provided") {
             return "AVOID ERROR: The hostname you used could not be resolved. \
                     Use the exact internal service name given in the system prompt, spelled correctly."
                 .to_string();
         }
+
         format!(
             "AVOID ERROR [{}]: Previous attempt was rejected because: '{}'. Try a different payload next time.",
             err_cat, err_details

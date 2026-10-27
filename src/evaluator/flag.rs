@@ -18,23 +18,23 @@ impl FlagEvaluator {
 impl Evaluator for FlagEvaluator {
     fn evaluate(&self, input: EvaluationInput<'_>) -> EvaluationResult {
         if input.body.contains(&self.success_marker) {
-            EvaluationResult {
+            return EvaluationResult {
                 is_valid: true,
                 error: None,
                 error_details: None,
-            }
-        } else {
+            };
+        }
+        let category = match input.status_code {
+                403 => EvaluationError::Custom("egress_blocked".into()),
+                500 if input.body.contains("Connection refused") => EvaluationError::Custom("connection_refused".into()),
+                500 if input.body.contains("Name or service not known") => EvaluationError::Custom("dns_resolution_failed".into()),
+                _ => EvaluationError::LogicFailure("target response did not contain the success marker".into()),
+            };
             EvaluationResult {
                 is_valid: false,
-                error: Some(EvaluationError::LogicFailure(
-                    "target response did not contain the success marker".to_string(),
-                )),
-                error_details: Some(format!(
-                    "Expected to find '{}' in target response, got: {}",
-                    self.success_marker,
-                    input.body.chars().take(300).collect::<String>()
-                )),
+                error: Some(category),
+                error_details: Some(format!("HTTP {} — {}", input.status_code,
+                    input.body.chars().take(300).collect::<String>())),
             }
-        }
     }
 }
