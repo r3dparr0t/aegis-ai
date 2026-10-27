@@ -131,25 +131,53 @@ impl RawHttpExecutor {
             for (i, req) in requests.iter().enumerate() {
                 match self.execute_one(req).await {
                     Ok(o) => outcomes.push(o),
-                    Err(e) => return Err(ExecutorError::StepFailed { step: i + 1, total, inner: Box::new(e) }),
+                    Err(e) => {
+                        return Err(ExecutorError::StepFailed {
+                            step: i + 1,
+                            total,
+                            inner: Box::new(e),
+                        })
+                    }
                 }
             }
-            // بدنه‌ی همه‌ی مراحل رو به هم بچسبون، تا evaluator روی کل زنجیره match کنه
-            let combined_body = outcomes.iter()
-                .map(|o| o.body.as_str())
-                .collect::<Vec<_>>()
-                .join("\n---\n");
-            let last = outcomes.last().unwrap();
+
+            // بدنه‌ی مرحله‌ی آخر (trigger) رو اول بذار تا وقتی evaluator
+            // error_details رو truncate می‌کنه، مدل خروجی واقعی رو ببینه.
+            // ترتیب برای evaluatorهای is_match بی‌اثره.
+            let combined_body = if outcomes.len() > 1 {
+                let (last, earlier) = outcomes
+                    .split_last()
+                    .expect("outcomes is non-empty (validated above)");
+                let earlier = earlier
+                    .iter()
+                    .map(|o| o.body.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n---\n");
+                format!(
+                    "=== LAST STEP (trigger) — status {} ===\n{}\n=== earlier steps ===\n{}",
+                    last.status_code, last.body, earlier
+                )
+            } else {
+                outcomes[0].body.clone()
+            };
+
+            let last = outcomes
+                .last()
+                .expect("outcomes is non-empty (validated above)");
+            let status_code = last.status_code;
+            let headers = last.headers.clone();
+            let latency_ms = outcomes.iter().map(|o| o.latency_ms).sum();
+
             return Ok(ExecutionOutcome {
-                status_code: last.status_code,
-                headers: last.headers.clone(),
+                status_code,
+                headers,
                 body: combined_body,
-                latency_ms: outcomes.iter().map(|o| o.latency_ms).sum(),
+                latency_ms,
             });
         }
         self.execute_one(payload).await
     }
-    
+
     pub fn new(
         base_url: impl Into<String>,
         default_method: impl Into<String>,
