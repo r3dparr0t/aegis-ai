@@ -140,15 +140,16 @@ impl RawHttpExecutor {
                     }
                 }
             }
-
-            // بدنه‌ی مرحله‌ی آخر (trigger) رو اول بذار تا وقتی evaluator
-            // error_details رو truncate می‌کنه، مدل خروجی واقعی رو ببینه.
-            // ترتیب برای evaluatorهای is_match بی‌اثره.
+    
+            // outcomes قطعاً غیرخالیه: requests.is_empty() رد شده،
+            // و هر تکرار یا push می‌کنه یا early-return می‌ده.
+            let last = outcomes
+                .last()
+                .expect("outcomes is non-empty (validated above)");
+    
+            // بدنه‌ی مرحله‌ی آخر (trigger) رو اول بذار ...
             let combined_body = if outcomes.len() > 1 {
-                let (last, earlier) = outcomes
-                    .split_last()
-                    .expect("outcomes is non-empty (validated above)");
-                let earlier = earlier
+                let earlier = outcomes[..outcomes.len() - 1]
                     .iter()
                     .map(|o| o.body.as_str())
                     .collect::<Vec<_>>()
@@ -158,26 +159,19 @@ impl RawHttpExecutor {
                     last.status_code, last.body, earlier
                 )
             } else {
-                outcomes[0].body.clone()
+                last.body.clone()
             };
-
-            let last = outcomes
-                .last()
-                .expect("outcomes is non-empty (validated above)");
-            let status_code = last.status_code;
-            let headers = last.headers.clone();
-            let latency_ms = outcomes.iter().map(|o| o.latency_ms).sum();
-
+    
             return Ok(ExecutionOutcome {
-                status_code,
-                headers,
+                status_code: last.status_code,
+                headers: last.headers.clone(),
                 body: combined_body,
-                latency_ms,
+                latency_ms: outcomes.iter().map(|o| o.latency_ms).sum(),
             });
         }
         self.execute_one(payload).await
     }
-
+    
     pub fn new(
         base_url: impl Into<String>,
         default_method: impl Into<String>,
