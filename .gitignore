@@ -6,7 +6,10 @@
 /aegis.db
 /aegis.db-shm
 /aegis.db-wal
+/aegis.db.backup-*
 *.db
+data/
+
 # labs/ نباید ignore شه، اینا config هستن نه runtime
 # runtime
 /reports/

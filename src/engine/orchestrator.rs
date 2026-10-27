@@ -2,18 +2,23 @@
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::{
-    domain::{EngineError, EvaluationError, EvaluationInput, EvaluationResult, Evaluator, ExecutorError, LessonUsage,
-		LlmProvider, LlmRequest, LlmResponse, MemoryQuery, TargetExecutor,},
-	engine::state::ExecutionState,
-	memory::SqliteMemoryRepository, 
-    executor:: {json::{extract_json_object, strip_code_fences},
-        payload::apply_transforms, shell::ShellRuntime},
-    events::{ConsoleObserver, Event, SharedObserver},
-    provider::OllamaProvider,
-};
 #[allow(unused_imports)]
 use crate::events::EngineObserver;
+use crate::{
+    domain::{
+        EngineError, EvaluationError, EvaluationInput, EvaluationResult, Evaluator, ExecutorError,
+        LessonUsage, LlmProvider, LlmRequest, LlmResponse, MemoryQuery, TargetExecutor,
+    },
+    engine::state::ExecutionState,
+    events::{ConsoleObserver, Event, SharedObserver},
+    executor::{
+        json::{extract_json_object, strip_code_fences},
+        payload::apply_transforms,
+        shell::ShellRuntime,
+    },
+    memory::SqliteMemoryRepository,
+    provider::OllamaProvider,
+};
 
 /// راهنمای دستی که بعد از N تلاشِ ناموفق به system_prompt اضافه می‌شه.
 /// نسخه‌ی عمومی/engine-level از `labs::spec::HintSpec` — engine از مفهوم
@@ -37,14 +42,12 @@ pub struct FallbackStrategy {
 /// وسط یه LLM call، اجرا رو لغو کنه.
 async fn wait_for_cancel(cancel: &Option<Arc<std::sync::atomic::AtomicBool>>) {
     match cancel {
-        Some(flag) => {
-            loop {
-                if flag.load(std::sync::atomic::Ordering::SeqCst) {
-                    return;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        Some(flag) => loop {
+            if flag.load(std::sync::atomic::Ordering::SeqCst) {
+                return;
             }
-        }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        },
         None => {
             // اگه cancel نداریم، این future هیچ‌وقت resolve نمی‌شه
             std::future::pending::<()>().await
@@ -142,11 +145,7 @@ impl ExecutionEngine {
             .create_execution(&self.config.task_type, user_input)
             .await
             .map_err(|e| {
-                self.emit_error(
-                    "database",
-                    format!("create_execution failed: {}", e),
-                    true,
-                );
+                self.emit_error("database", format!("create_execution failed: {}", e), true);
                 EngineError::Database(e.to_string())
             })?;
 
@@ -190,7 +189,7 @@ impl ExecutionEngine {
         }
 
         loop {
-           if let Some(cancel) = &self.config.cancel {
+            if let Some(cancel) = &self.config.cancel {
                 if cancel.load(std::sync::atomic::Ordering::SeqCst) {
                     eprintln!(
                         "[STOP] lab '{}' cancelled at attempt {} of {}",
@@ -200,7 +199,9 @@ impl ExecutionEngine {
                         reason: "cancelled by user".to_string(),
                         attempts_count: current_attempt.saturating_sub(1),
                     });
-                    return Err(EngineError::Cancelled { execution_id: execution_id.clone() });
+                    return Err(EngineError::Cancelled {
+                        execution_id: execution_id.clone(),
+                    });
                 }
             }
             if current_attempt > self.config.max_attempts {
@@ -276,7 +277,8 @@ impl ExecutionEngine {
                         });
                         if !fallback_marked {
                             fallback_marked = true;
-                            if let Err(e) = self.memory_repo.mark_fallback_used(&execution_id).await {
+                            if let Err(e) = self.memory_repo.mark_fallback_used(&execution_id).await
+                            {
                                 self.emit_error(
                                     "database",
                                     format!("mark_fallback_used failed (non-fatal): {}", e),
@@ -338,17 +340,21 @@ impl ExecutionEngine {
                 raw: response.output.clone(),
                 latency_ms: response.latency_ms,
             });
-            
+
             // ─── Shell Processing (قبل از extract_json_object) ───
             if let Some(shell) = &self.config.shell {
-                let crate::executor::shell::ProcessedResponse { modified, shell_call } =
-                    shell.process_response(&response.output).await;
+                let crate::executor::shell::ProcessedResponse {
+                    modified,
+                    shell_call,
+                } = shell.process_response(&response.output).await;
                 match shell_call {
                     Some(call) => match call.result {
                         Ok(r) => {
                             eprintln!(
                                 "[SHELL] executed args={:?} exit={:?} stdout={}B",
-                                call.args, r.exit_code, r.stdout.len()
+                                call.args,
+                                r.exit_code,
+                                r.stdout.len()
                             );
                             response.output = modified;
                         }
@@ -397,8 +403,11 @@ impl ExecutionEngine {
                     if let Some(repaired) = crate::executor::json::repair_json(&cleaned) {
                         match serde_json::from_str(&repaired) {
                             Ok(v) => {
-                                self.emit_error("parse", 
-                                    format!("JSON repaired (single-quote → double-quote)"), false);
+                                self.emit_error(
+                                    "parse",
+                                    format!("JSON repaired (single-quote → double-quote)"),
+                                    false,
+                                );
                                 v
                             }
                             Err(_) => {
@@ -414,7 +423,7 @@ impl ExecutionEngine {
                             }
                         }
                     }
-                    
+
                     let eval_result = EvaluationResult {
                         is_valid: false,
                         error: Some(EvaluationError::InvalidJson),
@@ -517,47 +526,51 @@ impl ExecutionEngine {
             // Execute
             // -------------------------------------------------------------------
             let payload_str = payload.to_string();
-            self.state(ExecutionState::Executing { payload: payload.clone() });
-            self.emit(Event::PayloadParsed { payload: payload_str });
+            self.state(ExecutionState::Executing {
+                payload: payload.clone(),
+            });
+            self.emit(Event::PayloadParsed {
+                payload: payload_str,
+            });
 
             let outcome = tokio::select! {
-                res = self.executor.execute(&payload) => {
-                    match res {
-                        Ok(o) => o,
-                        Err(err) => {
-                            let category = match &err {
-                                ExecutorError::Network(_) => EvaluationError::Custom("executor_network_error".into()),
-                                ExecutorError::InvalidPayload(_) => EvaluationError::Custom("executor_invalid_payload".into()),
-                                ExecutorError::UnknownEndpoint(_) => EvaluationError::Custom("executor_unknown_endpoint".into()),
-                                ExecutorError::StepFailed { step, total, .. } =>
-                                    EvaluationError::Custom(format!("executor_step_failed:{step}_of_{total}")),
-                            };
-                            self.emit_error("execute", format!("executor error: {}", err), false);
-                            let eval_result = EvaluationResult {
-                                is_valid: false,
-                                error: Some(category),
-                                error_details: Some(err.to_string()),
-                            };
-                            self.record_attempt_and_learn(
-                                &execution_id,
-                                current_attempt,
-                                &request,
-                                &response,
-                                &eval_result,
-                                &lesson_ids_used_this_attempt,
-                                &mut accumulated_lessons,
-                            )
-                            .await?;
-                            current_attempt += 1;
-                            continue;
+                    res = self.executor.execute(&payload) => {
+                        match res {
+                            Ok(o) => o,
+                            Err(err) => {
+                                let category = match &err {
+                                    ExecutorError::Network(_) => EvaluationError::Custom("executor_network_error".into()),
+                                    ExecutorError::InvalidPayload(_) => EvaluationError::Custom("executor_invalid_payload".into()),
+                                    ExecutorError::UnknownEndpoint(_) => EvaluationError::Custom("executor_unknown_endpoint".into()),
+                                    ExecutorError::StepFailed { step, total, .. } =>
+                                        EvaluationError::Custom(format!("executor_step_failed:{step}_of_{total}")),
+                                };
+                                self.emit_error("execute", format!("executor error: {}", err), false);
+                                let eval_result = EvaluationResult {
+                                    is_valid: false,
+                                    error: Some(category),
+                                    error_details: Some(err.to_string()),
+                                };
+                                self.record_attempt_and_learn(
+                                    &execution_id,
+                                    current_attempt,
+                                    &request,
+                                    &response,
+                                    &eval_result,
+                                    &lesson_ids_used_this_attempt,
+                                    &mut accumulated_lessons,
+                                )
+                                .await?;
+                                current_attempt += 1;
+                                continue;
+                            }
                         }
                     }
+                _ = wait_for_cancel(&self.config.cancel) => {
+                    eprintln!("[STOP] cancelled during target execution");
+                    return Err(EngineError::Cancelled { execution_id: execution_id.clone() });
                 }
-            _ = wait_for_cancel(&self.config.cancel) => {
-                eprintln!("[STOP] cancelled during target execution");
-                return Err(EngineError::Cancelled { execution_id: execution_id.clone() });
-            }
-        };
+            };
 
             // -------------------------------------------------------------------
             // Evaluate
@@ -619,7 +632,7 @@ impl ExecutionEngine {
             .await?;
 
             if eval_result.is_valid {
-                    self.state(ExecutionState::Completed {
+                self.state(ExecutionState::Completed {
                     final_response: recorded_response.clone(),
                     attempts_count: current_attempt,
                 });
@@ -650,11 +663,7 @@ impl ExecutionEngine {
             .record_attempt(execution_id, attempt_number, request, response, eval_result)
             .await
             .map_err(|e| {
-                self.emit_error(
-                    "database",
-                    format!("record_attempt failed: {}", e),
-                    true,
-                );
+                self.emit_error("database", format!("record_attempt failed: {}", e), true);
                 EngineError::Database(e.to_string())
             })?;
 
@@ -684,7 +693,7 @@ impl ExecutionEngine {
             self.state(ExecutionState::Reflecting {
                 response: response.clone(),
                 eval_result: eval_result.clone(),
-             });
+            });
             let err_details = eval_result
                 .error_details
                 .as_deref()
@@ -702,10 +711,16 @@ impl ExecutionEngine {
                         id: new_lesson_id.clone(),
                         text: lesson_text.clone(),
                     });
-                    accumulated_lessons.push(AppliedLesson {
-                        id: new_lesson_id,
-                        text: lesson_text,
-                    });
+                    // با upsert تو save_lesson، همون id می‌تونه تو چند attempt
+                    // پشت‌سرهم برگرده (چون دیگه هر بار ردیف تازه نمی‌سازه) —
+                    // بدون این چک، متن درس تو prompt تکرار می‌شد و یه ردیف
+                    // تکراری تو lesson_usage ثبت می‌شد.
+                    if !accumulated_lessons.iter().any(|l| l.id == new_lesson_id) {
+                        accumulated_lessons.push(AppliedLesson {
+                            id: new_lesson_id,
+                            text: lesson_text,
+                        });
+                    }
                 }
                 Err(e) => {
                     self.emit_error(
@@ -721,13 +736,18 @@ impl ExecutionEngine {
     }
 
     // -------------------------------------------------------------------
-    // build lesson by error cap details.
+    // build_lesson_text  build lesson by error cap details.
     // -------------------------------------------------------------------
 
     fn build_lesson_text(&self, err_cat: &EvaluationError, err_details: &str) -> String {
         // ── مسیر اصلی: دیسپچ روی error_category تایپ‌شده (از evaluator/flag.rs
         // یا نگاشت ExecutorError تو execute()), نه substring روی متن خام. ──
-        match err_cat.to_string().as_str() {
+        // custom extraction without Display dependency, because we want to match on the enum variant, not the string representation.
+        let cat_str: String = match err_cat {
+            EvaluationError::Custom(s) => s.clone(),
+            other => other.to_string(),
+        };
+        match cat_str.as_str() {
             "egress_blocked" => {
                 if self.config.task_type == "ssrf_ip_encoding_bypass" {
                     return "AVOID ERROR: Do NOT manually compute or write the encoded IP yourself. \
@@ -814,7 +834,9 @@ impl ExecutionEngine {
     fn extract_port(text: &str) -> Option<&str> {
         let idx = text.find("port=")?;
         let after = &text[idx + "port=".len()..];
-        let end = after.find(|c: char| !c.is_ascii_digit()).unwrap_or(after.len());
+        let end = after
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(after.len());
         if end == 0 {
             None
         } else {
@@ -858,5 +880,22 @@ impl ExecutionEngine {
         }
 
         out
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn custom_display_is_identity() {
+        assert_eq!(
+            EvaluationError::Custom("egress_blocked".to_string()).to_string(),
+            "egress_blocked"
+        );
     }
 }

@@ -93,20 +93,28 @@ impl SqliteMemoryRepository {
         let id = Uuid::new_v4().to_string();
         let err_cat = error_category.to_string();
 
-        sqlx::query(
+        // ON CONFLICT: اگه (task_type, error_category) از قبل هست، فقط متن درس
+        // رو به‌روز می‌کنه و hit_count رو زیاد می‌کنه — ردیف جدید نمی‌سازه.
+        // RETURNING id همیشه id ردیف واقعی (survivor) رو برمی‌گردونه، نه
+        // لزوماً همون `id` تولیدشده‌ی بالا (که فقط موقع insert تازه استفاده می‌شه).
+        let (saved_id,): (String,) = sqlx::query_as(
             r#"
             INSERT INTO lessons (id, task_type, error_category, lesson_learned)
             VALUES (?, ?, ?, ?)
+            ON CONFLICT(task_type, error_category) DO UPDATE SET
+                lesson_learned = excluded.lesson_learned,
+                hit_count      = lessons.hit_count + 1
+            RETURNING id
             "#,
         )
         .bind(&id)
         .bind(task_type)
-        .bind(err_cat)
+        .bind(&err_cat)
         .bind(lesson_learned)
-        .execute(&self.pool)
+        .fetch_one(&self.pool)
         .await?;
 
-        Ok(id)
+        Ok(saved_id)
     }
 
     /// بازیابی ترکیبی کاندیداهای درس از دیتابیس: ابتدا با task_type/error_category فیلتر می‌شود،
