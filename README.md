@@ -275,6 +275,15 @@ Restart the app, and the new lab appears in the sidebar. No code changes.
 The first four are filled in **before** the prompt is sent. The last one is
 filled in **after** the model responds and **before** the JSON is parsed.
 
+### Hint
+```yaml
+hints:
+  - after_attempt: 2
+    message: "HINT: This endpoint blocks dotted-quad IPv4. Use the `ip_encoding` field with 'decimal' or 'hex'."
+  - after_attempt: 4
+    message: "HINT: Only one exploit exists. Do not repeat payloads — use ip_encoding = 'decimal' exactly once."
+```
+
 ### Evaluators
 
 ```yaml
