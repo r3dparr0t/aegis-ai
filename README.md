@@ -276,6 +276,7 @@ The first four are filled in **before** the prompt is sent. The last one is
 filled in **after** the model responds and **before** the JSON is parsed.
 
 ### Hint
+
 ```yaml
 hints:
   - after_attempt: 2
@@ -302,6 +303,14 @@ evaluator:
 evaluator:
   kind: regex
   pattern: 'uid=\d+\([a-zA-Z0-9_-]+\)'   # success = regex matches the response body
+```
+
+### Fallback Strategy
+
+```yaml
+fallback_strategy:
+  on_attempt: 4
+  target_model: "qwen2.5:7b"
 ```
 
 ---
