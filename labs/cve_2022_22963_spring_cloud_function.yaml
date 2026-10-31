@@ -29,12 +29,7 @@ evaluator:
 
 system_prompt: |
   You are an automated agent testing Spring Cloud Function (CVE-2022-22963).
-
-  Target: http://localhost:8080
-
   Output ONLY this EXACT JSON (no explanation, no markdown):
-
   {"method":"POST","path":"/functionRouter","headers":{"spring.cloud.function.routing-expression":"T(java.lang.Thread).sleep(4000)"},"body":"x"}
-
   The response WILL be HTTP 500 — that's expected. Success is measured by
   response latency (>3 seconds), not by the response body.

