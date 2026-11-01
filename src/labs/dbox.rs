@@ -101,7 +101,9 @@ async fn run_docker_stream(
             let mut reader = BufReader::new(pipe).lines();
             while let Ok(Some(line)) = reader.next_line().await {
                 let clean = strip_ansi(&line);
-                if clean.trim().is_empty() { continue; }
+                if clean.trim().is_empty() {
+                    continue;
+                }
                 observer_out.on_event(Event::BoxOutput {
                     compose_dir: dir_out.clone(),
                     stream: "stdout".to_string(),
@@ -119,7 +121,9 @@ async fn run_docker_stream(
             let mut reader = BufReader::new(pipe).lines();
             while let Ok(Some(line)) = reader.next_line().await {
                 let clean = strip_ansi(&line);
-                if clean.trim().is_empty() { continue; }
+                if clean.trim().is_empty() {
+                    continue;
+                }
                 observer_err.on_event(Event::BoxOutput {
                     compose_dir: dir_err.clone(),
                     stream: "stderr".to_string(),
@@ -134,7 +138,9 @@ async fn run_docker_stream(
     let cancel_fut = async {
         match cancel {
             Some(flag) => loop {
-                if flag.load(Ordering::SeqCst) { return; }
+                if flag.load(Ordering::SeqCst) {
+                    return;
+                }
                 tokio::time::sleep(Duration::from_millis(150)).await;
             },
             None => std::future::pending::<()>().await,
@@ -232,7 +238,9 @@ pub async fn preflight(
             .filter(|p| !(is_persistent && Some(*p) == my_dir_for_skip.as_ref()))
             .cloned()
             .collect();
-        for p in &all { set.remove(p); }
+        for p in &all {
+            set.remove(p);
+        }
         all
     };
 
@@ -251,7 +259,9 @@ pub async fn preflight(
             "down",
         )
         .await;
-        observer.on_event(Event::BoxDown { compose_dir: dir_str });
+        observer.on_event(Event::BoxDown {
+            compose_dir: dir_str,
+        });
     }
 
     if !to_down.is_empty() {
@@ -275,8 +285,10 @@ pub async fn preflight(
         let ps_out = run_docker_capture(
             &[
                 "ps",
-                "--filter", &format!("publish={}", port),
-                "--format", "{{.Names}}\t{{.Label \"com.docker.compose.project.working_dir\"}}",
+                "--filter",
+                &format!("publish={}", port),
+                "--format",
+                "{{.Names}}\t{{.Label \"com.docker.compose.project.working_dir\"}}",
             ],
             std::path::Path::new("."),
             15,
@@ -365,7 +377,9 @@ pub async fn preflight(
 
     let up_ok = match up_result {
         Ok((success, _code)) if success => {
-            observer.on_event(Event::BoxUp { compose_dir: my_dir_str.clone() });
+            observer.on_event(Event::BoxUp {
+                compose_dir: my_dir_str.clone(),
+            });
             started_boxes.lock().unwrap().insert(my_dir.clone());
             true
         }
@@ -391,9 +405,7 @@ pub async fn preflight(
     };
 
     if !up_ok {
-        return PreflightResult::Down(format!(
-            "docker compose up failed in '{}'", my_dir_str
-        ));
+        return PreflightResult::Down(format!("docker compose up failed in '{}'", my_dir_str));
     }
 
     // ۵. wait
@@ -401,6 +413,7 @@ pub async fn preflight(
     let steps = (wait * 10).max(1);
     for _ in 0..steps {
         if is_cancelled(cancel) {
+            teardown(lab, auto_manage, observer, started_boxes).await;
             return PreflightResult::Down("cancelled while waiting for box".into());
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -409,13 +422,22 @@ pub async fn preflight(
     // ۶. setup_commands
     for cmd in &mc.setup_commands {
         if is_cancelled(cancel) {
+            teardown(lab, auto_manage, observer, started_boxes).await;
             return PreflightResult::Down("cancelled during setup".into());
         }
 
-        observer.on_event(Event::SetupCommandStarted { service: cmd.service.clone() });
+        observer.on_event(Event::SetupCommandStarted {
+            service: cmd.service.clone(),
+        });
 
         let exec_args: Vec<&str> = vec![
-            "compose", "exec", "-T", &cmd.service, "bash", "-c", &cmd.command,
+            "compose",
+            "exec",
+            "-T",
+            &cmd.service,
+            "bash",
+            "-c",
+            &cmd.command,
         ];
 
         let run_result = run_docker_stream(
@@ -446,6 +468,7 @@ pub async fn preflight(
     }
 
     if is_cancelled(cancel) {
+        teardown(lab, auto_manage, observer, started_boxes).await;
         return PreflightResult::Down("cancelled after setup".into());
     }
 
@@ -456,7 +479,9 @@ pub async fn preflight(
 }
 
 async fn wait_for_port_free(base_url: &str, timeout_secs: u64) -> bool {
-    let Ok(parsed) = url::Url::parse(base_url) else { return true; };
+    let Ok(parsed) = url::Url::parse(base_url) else {
+        return true;
+    };
     let host = parsed.host_str().unwrap_or("127.0.0.1").to_string();
     let port = parsed.port_or_known_default().unwrap_or(80);
     let addr = format!("{}:{}", host, port);
@@ -494,9 +519,13 @@ pub async fn teardown(
     observer: &SharedObserver,
     started_boxes: &Arc<std::sync::Mutex<std::collections::HashSet<PathBuf>>>,
 ) {
-    if !auto_manage { return; }
+    if !auto_manage {
+        return;
+    }
     let spec = lab.spec();
-    let Some(b) = spec.dbox.as_ref() else { return; };
+    let Some(b) = spec.dbox.as_ref() else {
+        return;
+    };
     let dir = expand_tilde(&b.compose_dir);
     let dir_str = dir.display().to_string();
     let compose_cmd = if b.teardown == "down" { "down" } else { "stop" };
@@ -513,7 +542,9 @@ pub async fn teardown(
     .await;
 
     started_boxes.lock().unwrap().remove(&dir);
-    observer.on_event(Event::BoxDown { compose_dir: dir_str });
+    observer.on_event(Event::BoxDown {
+        compose_dir: dir_str,
+    });
 }
 
 fn normalize_path(path: &str) -> String {
