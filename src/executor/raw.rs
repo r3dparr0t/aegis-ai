@@ -235,20 +235,34 @@ impl TargetExecutor for RawHttpExecutor {
 /// معمولاً مشکلی نیست، ولی اگه یه لب دیگه با پاسخ chunked بزرگ داشتی و
 /// evaluator regex دیگه match نکرد، احتمالاً باید یه decoder chunked هم
 /// اضافه کنیم.)
+/// جداسازیِ هدر/بدنه و status-line **روی بایت خام**، نه روی رشته‌ی
+/// from_utf8_lossy. دلیل: اگه بدنه gzip باشه، باینری غیرمعتبرِ UTF-8 داره؛
+/// lossy-conversionِ کل پاسخ (قبل از جدا کردن بدنه) اون بایت‌ها رو با
+/// U+FFFD جایگزین می‌کنه و برگشت‌ناپذیر خرابشون می‌کنه. این‌جا فقط
+/// بخش هدر (که ASCII/متنیه) lossy-decode می‌شه؛ بدنه تا آخرین لحظه
+/// Vec<u8> خام می‌مونه.
 fn parse_raw_http_response(raw: &[u8]) -> (u16, Vec<(String, String)>, String) {
-    let text = String::from_utf8_lossy(raw);
-    let status_code = text
+    // پیدا کردن "\r\n\r\n" روی بایت‌ها، نه روی رشته
+    let split = match raw.windows(4).position(|w| w == b"\r\n\r\n") {
+        Some(i) => i,
+        None => {
+            let status_code = String::from_utf8_lossy(raw)
+                .split_whitespace()
+                .nth(1)
+                .and_then(|s| s.parse::<u16>().ok())
+                .unwrap_or(0);
+            return (status_code, Vec::new(), String::new());
+        }
+    };
+
+    let head = String::from_utf8_lossy(&raw[..split]);
+    let raw_body: &[u8] = &raw[split + 4..];
+
+    let status_code = head
         .split_whitespace()
         .nth(1)
         .and_then(|s| s.parse::<u16>().ok())
         .unwrap_or(0);
-
-    let split = match text.find("\r\n\r\n") {
-        Some(i) => i,
-        None => return (status_code, Vec::new(), String::new()),
-    };
-    let head = &text[..split];
-    let raw_body = &text[split + 4..];
 
     let mut headers = Vec::new();
     for line in head.lines().skip(1) {
@@ -260,35 +274,58 @@ fn parse_raw_http_response(raw: &[u8]) -> (u16, Vec<(String, String)>, String) {
     let is_chunked = headers.iter().any(|(k, v)| {
         k.eq_ignore_ascii_case("transfer-encoding") && v.to_ascii_lowercase().contains("chunked")
     });
-    let body = if is_chunked {
-        decode_chunked(raw_body).unwrap_or_else(|| raw_body.to_string())
+    let dechunked: Vec<u8> = if is_chunked {
+        decode_chunked(raw_body).unwrap_or_else(|| raw_body.to_vec())
     } else {
-        raw_body.to_string()
+        raw_body.to_vec()
     };
+
+    let is_gzip = headers.iter().any(|(k, v)| {
+        k.eq_ignore_ascii_case("content-encoding") && v.to_ascii_lowercase().contains("gzip")
+    });
+    let final_bytes: Vec<u8> = if is_gzip {
+        // اگه decompress شکست خورد (مثلاً هدر دروغ بود)، به بایت خام
+        // برمی‌گردیم تا رفتار عادی (بدون gzip) خراب نشه.
+        decode_gzip(&dechunked).unwrap_or(dechunked)
+    } else {
+        dechunked
+    };
+
+    let body = String::from_utf8_lossy(&final_bytes).to_string();
 
     (status_code, headers, body)
 }
 
-fn decode_chunked(input: &str) -> Option<String> {
-    let mut out = String::new();
+fn decode_gzip(input: &[u8]) -> Option<Vec<u8>> {
+    use flate2::read::GzDecoder;
+    use std::io::Read;
+
+    let mut decoder = GzDecoder::new(input);
+    let mut out = Vec::new();
+    decoder.read_to_end(&mut out).ok()?;
+    Some(out)
+}
+
+fn decode_chunked(input: &[u8]) -> Option<Vec<u8>> {
+    let mut out = Vec::new();
     let mut pos = 0;
-    let bytes = input.as_bytes();
-    while pos < bytes.len() {
-        // پیدا کردن \r\n بعدی
-        let line_end = input[pos..].find("\r\n")?;
-        let size_line = &input[pos..pos + line_end];
+    while pos < input.len() {
+        // پیدا کردن \r\n بعدی (byte-safe)
+        let rest = &input[pos..];
+        let line_end = rest.windows(2).position(|w| w == b"\r\n")?;
+        let size_line = std::str::from_utf8(&rest[..line_end]).ok()?;
         let size_str = size_line.split(';').next()?.trim();
         let size = usize::from_str_radix(size_str, 16).ok()?;
         pos += line_end + 2;
         if size == 0 {
             break;
         }
-        if pos + size > bytes.len() {
+        if pos + size > input.len() {
             return None;
         }
-        out.push_str(&input[pos..pos + size]);
+        out.extend_from_slice(&input[pos..pos + size]);
         pos += size;
-        if pos + 2 <= bytes.len() && &input[pos..pos + 2] == "\r\n" {
+        if pos + 2 <= input.len() && &input[pos..pos + 2] == b"\r\n" {
             pos += 2;
         }
     }
