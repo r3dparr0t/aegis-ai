@@ -1,0 +1,34 @@
+[33mcommit 3c50b8ee7b050eac34ddd88ca8a7c4c89b58558e[m[33m ([m[1;36mHEAD -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: redparrot <redparrot@redparrot-deb>
+Date:   Thu Nov 5 12:06:52 2026 +0330
+
+    fix(executor/raw): decode gzip response bodies correctly
+    
+    Previously the entire raw HTTP response (headers + body) was converted
+    via String::from_utf8_lossy before splitting head/body, which
+    irreversibly corrupted binary gzip bodies into U+FFFD replacement
+    characters before any decompression could happen.
+    
+    - split header/body on raw bytes instead of lossy-decoded text
+    - decode_chunked now operates on &[u8]
+    - add decode_gzip (flate2::read::GzDecoder), applied after dechunking
+    - falls back to raw bytes on decompress failure, so non-gzip responses
+      are unaffected
+    
+    Fixes evaluator regex not matching on CVE-2024-27348 (HugeGraph) and
+    any other lab where the target returns Content-Encoding: gzip.
+
+ Cargo.lock                                                                                                 | 49 [32m+++++++++++++++++++++++++++++++++++++++++[m
+ Cargo.toml                                                                                                 |  1 [32m+[m
+ labs/ cve_2024_27348_hugegraph_gremlin_rce.yaml                                                            | 53 [31m--------------------------------------------[m
+ labs/ cve_2025_3248_langflow_exec_rce.yaml                                                                 | 58 [31m------------------------------------------------[m
+ labs/ cve_2025_55182_nextjs_react2shell_rce.yaml                                                           | 59 [31m-------------------------------------------------[m
+ labs/{ cve_2016_3088_activemq_fileserver_put_move.yaml => cve_2016_3088_activemq_fileserver_put_move.yaml} |  0
+ labs/{ cve_2018_3760_rails_sprockets_traversal.yaml => cve_2018_3760_rails_sprockets_traversal.yaml}       |  0
+ labs/{ cve_2020_13942_apache_unomi_mvel.yaml => cve_2020_13942_apache_unomi_mvel.yaml}                     |  0
+ labs/{ cve_2020_5902_f5_bigip_tmui_rce.yaml => cve_2020_5902_f5_bigip_tmui_rce.yaml}                       |  0
+ labs/cve_2024_27348_hugegraph_gremlin_rce.yaml                                                             | 65 [32m++++++++++++++++++++++++++++++++++++++++++++++++++++++[m
+ labs/{ cve_2024_36401_geoserver_xpath_rce.yaml => cve_2024_36401_geoserver_xpath_rce.yaml}                 |  0
+ labs/cve_2025_3248_langflow_exec_rce.yaml                                                                  | 28 [32m++++++++++++++[m[31m---------[m
+ src/executor/raw.rs                                                                                        | 83 [32m++++++++++++++++++++++++++++++++++++++++++++++++++[m[31m-------------------[m
+ 13 files changed, 193 insertions(+), 203 deletions(-)
