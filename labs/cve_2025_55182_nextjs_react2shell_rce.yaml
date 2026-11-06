@@ -6,7 +6,7 @@ meta:
   tags: [cve, nextjs, react, nodejs, deserialization, rce]
 
 box:
-  compose_dir: "~/vulhub-master/nextjs/CVE-2025-55182"
+  compose_dir: "~/vulhub-master/react/CVE-2025-5518"
   # اگر مسیر Vulhub برای این CVE موجود نبود، از lab اختصاصی استفاده کنید:
   # compose_dir: "~/labs/cve-2025-55182"
   teardown: down

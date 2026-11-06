@@ -1,0 +1,1 @@
+uid=1000(redparrot) gid=1000(redparrot) groups=1000(redparrot),24(cdrom),25(floppy),29(audio),30(dip),44(video),46(plugdev),100(users),106(netdev),111(bluetooth),113(lpadmin),117(scanner),992(ollama),994(docker)
