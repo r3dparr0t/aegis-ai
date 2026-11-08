@@ -3,9 +3,8 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
-
-use tokio::io::{AsyncBufReadExt, BufReader};
+use std::time::{Duration, Instant};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 use super::lab::Lab;
 use crate::events::{Event, SharedObserver};
@@ -408,15 +407,24 @@ pub async fn preflight(
         return PreflightResult::Down(format!("docker compose up failed in '{}'", my_dir_str));
     }
 
-    // ۵. wait
-    let wait = mc.wait_secs.max(1);
-    let steps = (wait * 10).max(1);
-    for _ in 0..steps {
+    // ۵. wait — به‌جای صبر کور، وضعیت واقعی اپ رو poll می‌کنیم؛
+    // اگه سرویس زودتر از wait_secs آماده شد، منتظر نمی‌مونیم،
+    // و اگه دیرتر شد هم تا سقف wait_secs فرصت می‌دیم.
+    let wait_deadline = Duration::from_secs(mc.wait_secs.max(1));
+    let poll_interval = Duration::from_millis(2000).min(wait_deadline);
+    let wait_started = Instant::now();
+    loop {
         if is_cancelled(cancel) {
             teardown(lab, auto_manage, observer, started_boxes).await;
             return PreflightResult::Down("cancelled while waiting for box".into());
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        if health_check(&base_url, path, 3).await.is_ok() {
+            break;
+        }
+        if wait_started.elapsed() >= wait_deadline {
+            break; // مهلت تموم شد؛ چک نهایی پایین تصمیم نهایی رو می‌گیره
+        }
+        tokio::time::sleep(poll_interval).await;
     }
 
     // ۶. setup_commands
@@ -496,7 +504,7 @@ async fn wait_for_port_free(base_url: &str, timeout_secs: u64) -> bool {
     false
 }
 
-async fn health_check(base_url: &str, path: &str, timeout_secs: u64) -> Result<(), String> {
+/*async fn health_check(base_url: &str, path: &str, timeout_secs: u64) -> Result<(), String> {
     let full = format!("{}{}", base_url.trim_end_matches('/'), path);
     let Ok(parsed) = url::Url::parse(&full) else {
         return Err(format!("bad target.url: {}", base_url));
@@ -510,6 +518,97 @@ async fn health_check(base_url: &str, path: &str, timeout_secs: u64) -> Result<(
         Ok(Ok(_)) => Ok(()),
         Ok(Err(e)) => Err(format!("tcp {}: {}", addr, e)),
         Err(_) => Err(format!("tcp {}: timeout", addr)),
+    }
+}*/
+async fn health_check(base_url: &str, path: &str, timeout_secs: u64) -> Result<(), String> {
+    let full = format!("{}{}", base_url.trim_end_matches('/'), path);
+
+    let parsed = url::Url::parse(&full).map_err(|_| format!("bad target.url: {}", base_url))?;
+
+    if parsed.scheme() != "http" {
+        return Err(format!(
+            "unsupported health-check scheme: {} (HTTP only)",
+            parsed.scheme()
+        ));
+    }
+
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| format!("missing host in target.url: {}", base_url))?
+        .to_string();
+
+    let port = parsed.port_or_known_default().unwrap_or(80);
+
+    let request_path = match parsed.query() {
+        Some(query) => format!("{}?{}", parsed.path(), query),
+        None => parsed.path().to_string(),
+    };
+
+    let host_header = if parsed.port().is_some() {
+        format!("{}:{}", host, port)
+    } else {
+        host.clone()
+    };
+
+    let probe = async {
+        let stream = tokio::net::TcpStream::connect((host.as_str(), port))
+            .await
+            .map_err(|e| format!("tcp {}:{}: {}", host, port, e))?;
+
+        let mut stream = stream;
+
+        let request = format!(
+            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+            request_path, host_header
+        );
+
+        stream
+            .write_all(request.as_bytes())
+            .await
+            .map_err(|e| format!("http request failed: {}", e))?;
+
+        let mut reader = BufReader::new(stream);
+        let mut status_line = String::new();
+
+        reader
+            .read_line(&mut status_line)
+            .await
+            .map_err(|e| format!("http status read failed: {}", e))?;
+
+        let status = status_line
+            .split_whitespace()
+            .nth(1)
+            .and_then(|s| s.parse::<u16>().ok())
+            .ok_or_else(|| format!("invalid HTTP status line: {}", status_line.trim()))?;
+
+        // Consume headers, but do not read the response body.
+        loop {
+            let mut header = String::new();
+
+            let n = reader
+                .read_line(&mut header)
+                .await
+                .map_err(|e| format!("http header read failed: {}", e))?;
+
+            if n == 0 {
+                return Err("connection closed before HTTP headers completed".to_string());
+            }
+
+            if header == "\r\n" || header == "\n" {
+                break;
+            }
+        }
+
+        if status >= 500 {
+            return Err(format!("HTTP {}: service is not ready", status));
+        }
+
+        Ok(())
+    };
+
+    match tokio::time::timeout(Duration::from_secs(timeout_secs.max(1)), probe).await {
+        Ok(result) => result,
+        Err(_) => Err(format!("http {}:{}: timeout", host, port)),
     }
 }
 
