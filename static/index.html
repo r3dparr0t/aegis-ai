@@ -173,8 +173,25 @@
   .editor-wrap{display:flex;flex-direction:column;gap:12px}
   .editor-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .editor-status{font-size:12px;color:var(--text-dim);font-family:var(--mono);margin-left:4px}
-  textarea.yaml-editor{width:100%;min-height:600px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:16px;font-family:var(--mono);font-size:12.5px;line-height:1.65;resize:vertical;tab-size:2}
-  textarea.yaml-editor:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(78,161,255,0.1)}
+  .yaml-shell{display:flex;min-height:600px;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+  .yaml-shell.focused{border-color:var(--accent);box-shadow:0 0 0 3px rgba(78,161,255,0.1)}
+  .yaml-shell.has-error{border-color:var(--red)}
+  .yaml-linenos{flex:0 0 auto;margin:0;padding:16px 10px 16px 14px;background:var(--panel-2);color:var(--text-faint);font-family:var(--mono);font-size:12.5px;line-height:1.65;text-align:right;user-select:none;overflow:hidden;border-right:1px solid var(--border)}
+  .yaml-linenos .err-line{color:var(--red);font-weight:700}
+  .yaml-editor-stack{position:relative;flex:1;min-width:0}
+  .yaml-highlight,textarea.yaml-editor{margin:0;padding:16px;font-family:var(--mono);font-size:12.5px;line-height:1.65;tab-size:2;white-space:pre;word-wrap:normal;box-sizing:border-box}
+  .yaml-highlight{position:absolute;inset:0;overflow:auto;pointer-events:none;color:var(--text)}
+  .yaml-highlight .y-key{color:var(--accent)}
+  .yaml-highlight .y-str{color:var(--green)}
+  .yaml-highlight .y-bool{color:var(--purple)}
+  .yaml-highlight .y-num{color:var(--yellow)}
+  .yaml-highlight .y-marker{color:var(--text-dim)}
+  .yaml-highlight .y-anchor{color:var(--yellow)}
+  .yaml-highlight .y-comment{color:var(--text-faint);font-style:italic}
+  .yaml-highlight .y-err{background:rgba(248,81,73,0.18);outline:1px solid rgba(248,81,73,0.5)}
+  textarea.yaml-editor{position:absolute;inset:0;width:100%;height:100%;background:transparent;color:transparent;caret-color:var(--text);border:none;resize:none;overflow:auto}
+  textarea.yaml-editor:focus{outline:none}
+  textarea.yaml-editor::selection{background:rgba(78,161,255,0.35)}
   .editor-hint{font-size:11px;color:var(--text-faint);margin-top:2px}
 
   .report-list{display:flex;flex-direction:column;gap:6px}
@@ -1011,9 +1028,16 @@ async function renderTabBody() {
           <button class="danger" onclick="deleteCurrentLab()">🗑 Delete Lab</button>
           <span class="editor-status" id="yaml-status"></span>
         </div>
-        <textarea class="yaml-editor" id="yaml-editor" spellcheck="false"></textarea>
+        <div class="yaml-shell" id="yaml-shell">
+          <pre class="yaml-linenos" id="yaml-linenos" aria-hidden="true">1</pre>
+          <div class="yaml-editor-stack">
+            <pre class="yaml-highlight" id="yaml-highlight" aria-hidden="true"></pre>
+            <textarea class="yaml-editor" id="yaml-editor" spellcheck="false"></textarea>
+          </div>
+        </div>
       </div>`;
     await reloadYaml();
+    setupYamlEditor();
     return;
   }
 
@@ -1112,12 +1136,21 @@ async function reloadYaml() {
     const r = await fetch(`/api/lab/${currentIdx}/yaml`);
     el.value = await r.text();
     if (st) st.textContent = '';
+    renderYamlOverlay();
   } catch (e) { if (st) st.textContent = '✗ load failed'; }
 }
 async function saveYaml() {
   const el = $('yaml-editor');
   if (!el) return;
   const st = $('yaml-status');
+  const issues = findYamlTabIssues(el.value);
+  if (issues.length) {
+    if (st) { st.textContent = `✗ tab character on line ${issues[0]} (YAML needs spaces)`; st.style.color = 'var(--red)'; }
+    toast('Fix indentation before saving', true);
+    goToYamlLine(issues[0]);
+    renderYamlOverlay();
+    return;
+  }
   if (st) { st.textContent = 'saving...'; st.style.color = 'var(--text-dim)'; }
   try {
     const r = await fetch(`/api/lab/${currentIdx}/yaml`, {
@@ -1135,6 +1168,121 @@ async function saveYaml() {
       toast('Save failed', true);
     }
   } catch (e) { if (st) { st.textContent = '✗ network error'; st.style.color = 'var(--red)'; } }
+}
+
+// ─── YAML editor: line numbers, light syntax highlight, tab/indent handling ───
+function findYamlTabIssues(text) {
+  const issues = [];
+  text.split('\n').forEach((line, i) => {
+    if (/^[ \t]*\t/.test(line)) issues.push(i + 1);
+  });
+  return issues;
+}
+function highlightYaml(text) {
+  const badLines = new Set(findYamlTabIssues(text));
+  return text.split('\n').map((rawLine, i) => {
+    if (rawLine === '') return '';
+    let line = rawLine, comment = '';
+    let q = null;
+    for (let j = 0; j < line.length; j++) {
+      const c = line[j];
+      if (q) { if (c === q) q = null; continue; }
+      if (c === '"' || c === "'") { q = c; continue; }
+      if (c === '#' && (j === 0 || /\s/.test(line[j - 1]))) { comment = line.slice(j); line = line.slice(0, j); break; }
+    }
+    const m = line.match(/^(\s*(?:-\s+)*)(.*)$/);
+    const indent = m[1], rest = m[2];
+    let restHtml = esc(rest);
+    restHtml = restHtml.replace(/^([A-Za-z0-9_.-]+|&quot;[^&]*&quot;|&#39;[^&]*&#39;)(\s*:)(\s|$)/,
+      (m0, k, colon, trail) => `<span class="y-key">${k}</span>${colon}${trail}`);
+    restHtml = restHtml.replace(/&quot;([^&]*)&quot;/g, '<span class="y-str">&quot;$1&quot;</span>');
+    restHtml = restHtml.replace(/&#39;([^&]*)&#39;/g, '<span class="y-str">&#39;$1&#39;</span>');
+    restHtml = restHtml.replace(/\b(true|false|yes|no|on|off|null)\b/gi, '<span class="y-bool">$1</span>');
+    restHtml = restHtml.replace(/(^|\s)(-?\d+\.?\d*)(\s*)$/, '$1<span class="y-num">$2</span>$3');
+    restHtml = restHtml.replace(/(&amp;[A-Za-z0-9_-]+|\*[A-Za-z0-9_-]+|!![A-Za-z0-9_/]+)/g, '<span class="y-anchor">$1</span>');
+    let indentHtml = esc(indent).replace(/-/g, '<span class="y-marker">-</span>');
+    let html = indentHtml + restHtml;
+    if (comment) html += `<span class="y-comment">${esc(comment)}</span>`;
+    if (badLines.has(i + 1)) html = `<span class="y-err">${html || ' '}</span>`;
+    return html;
+  }).join('\n');
+}
+function renderYamlOverlay() {
+  const el = $('yaml-editor'), hl = $('yaml-highlight'), ln = $('yaml-linenos');
+  if (!el || !hl || !ln) return;
+  hl.innerHTML = highlightYaml(el.value) + '\n';
+  const badLines = new Set(findYamlTabIssues(el.value));
+  const count = el.value.split('\n').length;
+  let nums = '';
+  for (let i = 1; i <= count; i++) nums += (badLines.has(i) ? `<span class="err-line">${i}</span>` : i) + '\n';
+  ln.innerHTML = nums;
+  syncYamlScroll();
+}
+function syncYamlScroll() {
+  const el = $('yaml-editor'), hl = $('yaml-highlight'), ln = $('yaml-linenos');
+  if (!el || !hl || !ln) return;
+  hl.scrollTop = el.scrollTop; hl.scrollLeft = el.scrollLeft;
+  ln.scrollTop = el.scrollTop;
+}
+function goToYamlLine(lineNum) {
+  const el = $('yaml-editor');
+  if (!el) return;
+  const lines = el.value.split('\n');
+  let pos = 0;
+  for (let i = 0; i < lineNum - 1 && i < lines.length; i++) pos += lines[i].length + 1;
+  el.focus();
+  el.setSelectionRange(pos, pos + (lines[lineNum - 1]?.length || 0));
+}
+let yamlEditorWired = false;
+function setupYamlEditor() {
+  const el = $('yaml-editor'), shell = $('yaml-shell');
+  if (!el || !shell) return;
+  el.addEventListener('input', renderYamlOverlay);
+  el.addEventListener('scroll', syncYamlScroll);
+  el.addEventListener('focus', () => shell.classList.add('focused'));
+  el.addEventListener('blur', () => shell.classList.remove('focused'));
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const start = el.selectionStart, end = el.selectionEnd;
+      const v = el.value;
+      if (start === end) {
+        el.value = v.slice(0, start) + '  ' + v.slice(end);
+        el.setSelectionRange(start + 2, start + 2);
+      } else {
+        // indent/outdent every selected line
+        const lineStart = v.lastIndexOf('\n', start - 1) + 1;
+        let lineEnd = v.indexOf('\n', end); if (lineEnd === -1) lineEnd = v.length;
+        const block = v.slice(lineStart, lineEnd);
+        let newBlock, delta;
+        if (e.shiftKey) {
+          newBlock = block.split('\n').map(l => l.replace(/^(  |\t|^ )/, '')).join('\n');
+          delta = newBlock.length - block.length;
+        } else {
+          newBlock = block.split('\n').map(l => '  ' + l).join('\n');
+          delta = newBlock.length - block.length;
+        }
+        el.value = v.slice(0, lineStart) + newBlock + v.slice(lineEnd);
+        el.setSelectionRange(Math.max(lineStart, start + (e.shiftKey ? delta : 2)), Math.max(lineStart, end + delta));
+      }
+      renderYamlOverlay();
+    } else if (e.key === 'Enter') {
+      const start = el.selectionStart;
+      const v = el.value;
+      const lineStart = v.lastIndexOf('\n', start - 1) + 1;
+      const curLine = v.slice(lineStart, start);
+      const indentMatch = curLine.match(/^\s*(?:-\s+)?/);
+      let indent = indentMatch ? indentMatch[0].replace('-', ' ') : '';
+      if (/:\s*$/.test(curLine) || /^\s*-\s*$/.test(curLine)) indent += '  ';
+      if (indent) {
+        e.preventDefault();
+        el.value = v.slice(0, start) + '\n' + indent + v.slice(el.selectionEnd);
+        const pos = start + 1 + indent.length;
+        el.setSelectionRange(pos, pos);
+        renderYamlOverlay();
+      }
+    }
+  });
 }
 async function deleteCurrentLab() {
   if (currentIdx === null) return;
