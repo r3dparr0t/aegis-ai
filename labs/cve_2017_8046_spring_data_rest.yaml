@@ -10,7 +10,7 @@ box:
   teardown: down
   wait_secs: 8
 
-max_attempts: 5
+max_attempts: 10
 
 target:
   kind: raw
