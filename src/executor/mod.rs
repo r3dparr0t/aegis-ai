@@ -5,6 +5,7 @@ pub mod payload;
 pub mod ip;
 pub mod raw;
 pub mod shell;
+pub mod tls;
 
 // ...
 pub use raw::*;
@@ -13,3 +14,4 @@ pub use json::*;
 pub use payload::*;
 pub use ip::*;
 pub use shell::*;
+pub use tls::*;

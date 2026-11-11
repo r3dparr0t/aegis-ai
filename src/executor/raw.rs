@@ -1,13 +1,25 @@
 // src/executor/raw.rs
 use std::collections::HashMap;
+use std::sync::OnceLock;
 use std::time::Instant;
 
 use async_trait::async_trait;
 use serde_json::Value;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio_rustls::rustls::pki_types::ServerName;
+use tokio_rustls::TlsConnector;
 
+use super::tls::{build_connector, TlsVerification};
 use crate::domain::{ExecutionOutcome, ExecutorError, TargetExecutor};
+
+/// یک stream که یا TCP خام است (http) یا TCP پیچیده‌شده در TLS (https).
+/// محتوای request/response همچنان بایت‌به‌بایت دست‌نخورده می‌مونه —
+/// TLS فقط لایه‌ی transport رو عوض می‌کنه، نه اینکه از یه HTTP client
+/// واقعی (مثل reqwest) استفاده کنیم. دلیلش همون چیزیه که بالای این فایل
+/// توضیح داده شده: بعضی exploitها به encoding خامِ دست‌نخورده‌ی path نیاز دارن.
+trait RawStream: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> RawStream for T {}
 
 /// Executor برای CVEهایی که خودِ اکسپلویتشون به encoding خامِ دست‌نخورده‌ی
 /// path بستگی داره (مثل CVE-2021-41773: ".%2e").
@@ -26,18 +38,55 @@ pub struct RawHttpExecutor {
     scheme: String,
     default_method: String,
     default_headers: Vec<(String, String)>,
+    tls_policy: TlsVerification,
+    // Lazy: فقط وقتی اولین اتصال https واقعاً اتفاق می‌افته ساخته می‌شه.
+    // برای لب‌های http (اکثریت) هیچ ClientConfig/CryptoProvider ای
+    // ساخته یا نصب نمی‌شه.
+    tls_connector: OnceLock<TlsConnector>,
 }
 
 impl RawHttpExecutor {
+    fn tls_connector(&self) -> &TlsConnector {
+        self.tls_connector
+            .get_or_init(|| build_connector(&self.tls_policy))
+    }
+
+    /// کانکشن transport رو باز می‌کنه: TCP خام برای http، TCP پیچیده‌شده
+    /// در TLS برای https. بعد از این نقطه، هر دو حالت دقیقاً همون بایت‌های
+    /// خامِ request-line/headers/body رو می‌نویسن — هیچ HTTP client واقعی
+    /// (reqwest و مثل اون) وسط نیست، پس رفتار http فعلی دست‌نخورده می‌مونه.
+    async fn connect(&self, addr: &str) -> Result<Box<dyn RawStream>, ExecutorError> {
+        let tcp = TcpStream::connect(addr)
+            .await
+            .map_err(|e| ExecutorError::Network(format!("connect to {}: {}", addr, e)))?;
+
+        match self.scheme.as_str() {
+            "http" => Ok(Box::new(tcp)),
+            "https" => {
+                let server_name = ServerName::try_from(self.host.clone()).map_err(|e| {
+                    ExecutorError::Network(format!(
+                        "invalid TLS server name '{}': {}",
+                        self.host, e
+                    ))
+                })?;
+                let tls = self
+                    .tls_connector()
+                    .connect(server_name, tcp)
+                    .await
+                    .map_err(|e| {
+                        ExecutorError::Network(format!("TLS handshake with {}: {}", addr, e))
+                    })?;
+                Ok(Box::new(tls))
+            }
+            other => Err(ExecutorError::Network(format!(
+                "RawHttpExecutor only supports http:// and https:// (got '{}://')",
+                other
+            ))),
+        }
+    }
+
     /// اجرای یه درخواست تکی. تمام منطق قبلیِ execute این‌جاست.
     async fn execute_one(&self, payload: &Value) -> Result<ExecutionOutcome, ExecutorError> {
-        if self.scheme != "http" {
-            return Err(ExecutorError::Network(format!(
-                "RawHttpExecutor only supports http:// (No '{}://') — TLS Not wired on soket.",
-                self.scheme
-            )));
-        }
-
         let path = payload
             .get("path")
             .and_then(|v| v.as_str())
@@ -95,20 +144,29 @@ impl RawHttpExecutor {
 
         let start = Instant::now();
         let addr = format!("{}:{}", self.host, self.port);
-        let mut stream = TcpStream::connect(&addr)
-            .await
-            .map_err(|e| ExecutorError::Network(format!("connect to {}: {}", addr, e)))?;
+        let mut stream = self.connect(&addr).await?;
 
         stream
             .write_all(request.as_bytes())
             .await
             .map_err(|e| ExecutorError::Network(format!("write: {}", e)))?;
 
+        // بعضی هدف‌ها (مخصوصاً سرورهای ساده/قدیمی تو لب‌ها) بعد از
+        // `Connection: close` بدون فرستادنِ TLS `close_notify` کانکشن رو
+        // می‌بندن. tokio-rustls این حالت رو به‌جای EOF تمیز،
+        // `UnexpectedEof` گزارش می‌ده (برای جلوگیری از truncation attack
+        // روی پروتکل‌هایی که طول پیام از TLS layer معلوم نیست). این‌جا
+        // چون طول واقعی پاسخ از خودِ HTTP (status/headers/body) معلومه،
+        // نه از TLS، این خطا رو یک بسته‌شدن تمیز در نظر می‌گیریم و هر چی
+        // تا الان خونده شده رو به‌عنوان پاسخ کامل قبول می‌کنیم. روی
+        // http://  (TCP خام) این مسیر اصلاً فعال نمی‌شه چون TCP خام با
+        // EOF تمیز خودش از read_to_end برمی‌گرده.
         let mut raw_response = Vec::new();
-        stream
-            .read_to_end(&mut raw_response)
-            .await
-            .map_err(|e| ExecutorError::Network(format!("read: {}", e)))?;
+        if let Err(e) = stream.read_to_end(&mut raw_response).await {
+            if e.kind() != io::ErrorKind::UnexpectedEof {
+                return Err(ExecutorError::Network(format!("read: {}", e)));
+            }
+        }
 
         let latency_ms = start.elapsed().as_millis() as u64;
         let (status_code, headers, resp_body) = parse_raw_http_response(&raw_response);
@@ -193,6 +251,11 @@ impl RawHttpExecutor {
             scheme,
             default_method: default_method.into(),
             default_headers: default_headers.into_iter().collect(),
+            // پیش‌فرض فعلی پروژه (طبق تصمیم صریح کاربر). وقتی System/Custom
+            // CA اضافه بشه، این‌جا از تنظیمات لب/کانفیگ خونده می‌شه، نه
+            // اینکه ثابت باشه.
+            tls_policy: TlsVerification::default(),
+            tls_connector: OnceLock::new(),
         }
     }
 }
