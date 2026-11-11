@@ -201,6 +201,7 @@ impl ShellRuntime {
             // در همین گروه قرار می‌گیرد، پس با SIGKILL به -pid همه می‌میرند.
             cmd.process_group(0);
         }
+        eprintln!("[SHELL DEBUG] script={} timeout={:?}", self.script_path.display(), self.timeout);
 
         let child = cmd
             .spawn()
