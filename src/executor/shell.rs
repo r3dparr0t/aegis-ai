@@ -201,12 +201,22 @@ impl ShellRuntime {
             // در همین گروه قرار می‌گیرد، پس با SIGKILL به -pid همه می‌میرند.
             cmd.process_group(0);
         }
-        eprintln!("[SHELL DEBUG] script={} timeout={:?}", self.script_path.display(), self.timeout);
+        eprintln!(
+            "[SHELL DEBUG] script={} timeout={:?}",
+            self.script_path.display(),
+            self.timeout
+        );
 
         let child = cmd
             .spawn()
             .map_err(|e| ShellError::SpawnFailed(e.to_string()))?;
         let pid = child.id();
+
+        let start = std::time::Instant::now();
+        eprintln!(
+            "[SHELL DEBUG] execute start, configured timeout={:?}",
+            self.timeout
+        );
 
         match tokio::time::timeout(self.timeout, child.wait_with_output()).await {
             Ok(Ok(output)) => {
@@ -214,12 +224,20 @@ impl ShellRuntime {
                 let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
                 let exit_code = output.status.code();
                 if output.status.success() {
+                    eprintln!("[SHELL DEBUG] completed in {:?}", start.elapsed());
+
                     Ok(ShellResult {
                         stdout,
                         stderr,
                         exit_code,
                     })
                 } else {
+                    eprintln!(
+                        "[SHELL DEBUG] non-zero exit {:?} after {:?}: {}",
+                        exit_code,
+                        start.elapsed(),
+                        stderr.chars().take(200).collect::<String>()
+                    );
                     Err(ShellError::NonZeroExit {
                         code: exit_code,
                         stderr,
@@ -383,9 +401,7 @@ fn is_inside_json_string(text: &str, pos: usize) -> bool {
 #[cfg(unix)]
 async fn bare_placeholder_inserts_raw_stdout() {
     use std::os::unix::fs::PermissionsExt;
-    let script = std::env::temp_dir().join(format!(
-        "aegis_bare_ph_{}.sh", std::process::id()
-    ));
+    let script = std::env::temp_dir().join(format!("aegis_bare_ph_{}.sh", std::process::id()));
     std::fs::write(&script, "#!/bin/sh\nprintf '%s' '[{\"a\":1},{\"b\":2}]'\n").unwrap();
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
 
@@ -397,7 +413,6 @@ async fn bare_placeholder_inserts_raw_stdout() {
     let _: serde_json::Value = serde_json::from_str(&out.modified).unwrap();
     let _ = std::fs::remove_file(&script);
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -10,7 +10,7 @@ box:
   teardown: down
   wait_secs: 5
 
-max_attempts: 6
+max_attempts: 10
 
 target:
   kind: raw
@@ -25,7 +25,7 @@ task:
 # --- بخش جدید: پیکربندی اسکریپت کمکی ---
 shell:
   script_path: "scripts/phuip-fpizdam.py"
-  timeout_secs: 120
+  timeout_secs: 30
 
 evaluator:
   kind: regex
