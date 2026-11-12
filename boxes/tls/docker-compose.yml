@@ -1,0 +1,8 @@
+services:
+  tls-raw-path-poc:
+    build:
+      context: .
+      network: host
+    container_name: lab_tls_raw_path_poc
+    ports:
+      - "8443:8443"

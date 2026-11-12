@@ -1,0 +1,53 @@
+meta:
+  id: tls_raw_path_bypass
+  name: "TLS Raw Path Bypass — HTTPS + check-before-decode"
+  description: "لب داخلی Aegis (نه CVE واقعی): سرور HTTPS با باگ کلاسیک «چک قبل از decode» روی مسیر، برای تست RawHttpExecutor روی https و تایید اینکه بایت خامِ path از پشت TLS هم دست‌نخورده می‌رسه."
+  order: 900
+  tags: [internal, tls, https, path-traversal]
+
+box:
+  compose_dir: "boxes/tls"
+  wait_secs: 5
+  health_check_path: "/"
+  teardown: down
+
+max_attempts: 6
+
+target:
+  kind: raw
+  url: "https://localhost:8443"
+  method: GET
+  headers: {}
+
+task:
+  task_type: tls_raw_path_bypass
+  default_goal: "با استفاده از یک مسیر رمزگذاری‌شده، فایل secret/flag.txt را بخوان."
+
+evaluator:
+  kind: regex
+  pattern: "AEGIS_FLAG\\{[a-z0-9_]+\\}"
+
+system_prompt: |
+  هدف یک سرور HTTPS است (گواهی self-signed — نگران اعتبار گواهی نباش،
+  executor به‌صورت عمدی هر گواهی را قبول می‌کند).
+
+  سرور یک فایل static از پوشه‌ی public/ سرو می‌کند. یک فایل محرمانه
+  به اسم secret/flag.txt کنار public/ وجود دارد (خارج از ریشه‌ی سرو
+  عمومی).
+
+  باگ: سرور مسیر خامِ HTTP (قبل از urldecode) را فقط برای وجود دو نقطه‌ی
+  متوالی تحت‌اللفظی (`..`) چک می‌کند. اگر پیدا نشود، مسیر decode می‌شود
+  و بعد از آن برای باز کردن فایل استفاده می‌شود.
+
+  یعنی اگر مستقیماً از ".." تحت‌اللفظی استفاده کنی (مثل `/../secret/flag.txt`)
+  سرور با ۴۰۳ مسدودش می‌کند. ولی اگر همان نقطه‌ها را partial-encode کنی
+  (یکی تحت‌اللفظی، یکی به‌صورت `%2e`)، رشته‌ی خام دیگر شامل ".." نیست
+  ولی بعد از decode دقیقاً همان می‌شود.
+
+  نمونه‌ی مسیر برای رسیدن به فایل محرمانه (یک پوشه بالاتر از ریشه‌ی سرو):
+  `/.%2e/secret/flag.txt`
+
+  فرمت payload:
+  {"method": "GET", "path": "<path>"}
+
+  فقط یک JSON object برای یک تلاش برگردان.
