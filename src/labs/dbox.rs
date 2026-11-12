@@ -4,10 +4,21 @@ use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio_rustls::rustls::pki_types::ServerName;
 
 use super::lab::Lab;
 use crate::events::{Event, SharedObserver};
+use crate::executor::tls::{build_connector, TlsVerification};
+
+/// برای health_check: یا TCP خام (http) یا TCP پیچیده‌شده در TLS (https).
+/// همون الگوی `RawStream` در executor/raw.rs — این پروب هم فقط می‌خواد
+/// بدونه سرویس بالاست یا نه، نه اینکه گواهی رو اعتبارسنجی کنه؛ برای
+/// همینم سیاست `Insecure` رو مثل RawHttpExecutor استفاده می‌کنه. اگه
+/// بعداً System/Custom CA اضافه بشه، این‌جا هم باید از همون سیاست
+/// per-lab بخونه، نه این مقدار ثابت.
+trait HealthProbeStream: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> HealthProbeStream for T {}
 
 pub enum PreflightResult {
     AlreadyUp,
@@ -520,24 +531,52 @@ async fn wait_for_port_free(base_url: &str, timeout_secs: u64) -> bool {
         Err(_) => Err(format!("tcp {}: timeout", addr)),
     }
 }*/
+async fn connect_probe_stream(
+    scheme: &str,
+    host: &str,
+    port: u16,
+) -> Result<Box<dyn HealthProbeStream>, String> {
+    let addr = (host, port);
+    let tcp = tokio::net::TcpStream::connect(addr)
+        .await
+        .map_err(|e| format!("tcp {}:{}: {}", host, port, e))?;
+
+    match scheme {
+        "http" => Ok(Box::new(tcp)),
+        "https" => {
+            let server_name = ServerName::try_from(host.to_string())
+                .map_err(|e| format!("invalid TLS server name '{}': {}", host, e))?;
+            // همون سیاست فعلی RawHttpExecutor: زنجیره/هاست‌نیم گواهی چک
+            // نمی‌شه (هدف‌های لب معمولاً self-signed هستن)، ولی هندشیک
+            // واقعی و امضاش چک می‌شه — پس این یه health check واقعیه،
+            // نه فقط یه TCP connect خالی.
+            let connector = build_connector(&TlsVerification::Insecure);
+            let tls = connector
+                .connect(server_name, tcp)
+                .await
+                .map_err(|e| format!("TLS handshake {}:{}: {}", host, port, e))?;
+            Ok(Box::new(tls))
+        }
+        other => Err(format!(
+            "unsupported health-check scheme: {} (http/https only)",
+            other
+        )),
+    }
+}
+
 async fn health_check(base_url: &str, path: &str, timeout_secs: u64) -> Result<(), String> {
     let full = format!("{}{}", base_url.trim_end_matches('/'), path);
 
     let parsed = url::Url::parse(&full).map_err(|_| format!("bad target.url: {}", base_url))?;
-
-    if parsed.scheme() != "http" {
-        return Err(format!(
-            "unsupported health-check scheme: {} (HTTP only)",
-            parsed.scheme()
-        ));
-    }
 
     let host = parsed
         .host_str()
         .ok_or_else(|| format!("missing host in target.url: {}", base_url))?
         .to_string();
 
-    let port = parsed.port_or_known_default().unwrap_or(80);
+    let port = parsed
+        .port_or_known_default()
+        .unwrap_or(if parsed.scheme() == "https" { 443 } else { 80 });
 
     let request_path = match parsed.query() {
         Some(query) => format!("{}?{}", parsed.path(), query),
@@ -550,12 +589,10 @@ async fn health_check(base_url: &str, path: &str, timeout_secs: u64) -> Result<(
         host.clone()
     };
 
-    let probe = async {
-        let stream = tokio::net::TcpStream::connect((host.as_str(), port))
-            .await
-            .map_err(|e| format!("tcp {}:{}: {}", host, port, e))?;
+    let scheme = parsed.scheme().to_string();
 
-        let mut stream = stream;
+    let probe = async {
+        let mut stream = connect_probe_stream(&scheme, &host, port).await?;
 
         let request = format!(
             "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",

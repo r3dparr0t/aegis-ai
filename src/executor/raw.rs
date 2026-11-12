@@ -155,17 +155,27 @@ impl RawHttpExecutor {
         // `Connection: close` بدون فرستادنِ TLS `close_notify` کانکشن رو
         // می‌بندن. tokio-rustls این حالت رو به‌جای EOF تمیز،
         // `UnexpectedEof` گزارش می‌ده (برای جلوگیری از truncation attack
-        // روی پروتکل‌هایی که طول پیام از TLS layer معلوم نیست). این‌جا
-        // چون طول واقعی پاسخ از خودِ HTTP (status/headers/body) معلومه،
-        // نه از TLS، این خطا رو یک بسته‌شدن تمیز در نظر می‌گیریم و هر چی
-        // تا الان خونده شده رو به‌عنوان پاسخ کامل قبول می‌کنیم. روی
-        // http://  (TCP خام) این مسیر اصلاً فعال نمی‌شه چون TCP خام با
-        // EOF تمیز خودش از read_to_end برمی‌گرده.
+        // روی پروتکل‌هایی که طول پیام از TLS layer معلوم نیست).
+        //
+        // قبلاً این‌جا هر `UnexpectedEof` بی‌قیدوشرط به‌عنوان «بسته‌شدن
+        // تمیز» قبول می‌شد — بدون اینکه واقعاً چک بشه پاسخ HTTP کامل
+        // رسیده یا نه. این یه باگ بود: یه پاسخ نصفه (مثلاً وسط بدنه‌ی
+        // Content-Length-دار قطع شده) می‌تونست به‌اشتباه موفق تلقی بشه.
+        //
+        // الان: `UnexpectedEof` فقط وقتی قبول می‌شه که `check_http_completeness`
+        // واقعاً اثبات کنه پاسخ از نظر HTTP کامله (طبق Content-Length یا
+        // ترمیناتور chunked). روی http:// (TCP خام) این مسیر اصلاً فعال
+        // نمی‌شه چون TCP خام با EOF تمیز خودش از read_to_end برمی‌گرده.
         let mut raw_response = Vec::new();
-        if let Err(e) = stream.read_to_end(&mut raw_response).await {
-            if e.kind() != io::ErrorKind::UnexpectedEof {
-                return Err(ExecutorError::Network(format!("read: {}", e)));
-            }
+        let eof_was_unexpected = match stream.read_to_end(&mut raw_response).await {
+            Ok(_) => false,
+            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => true,
+            Err(e) => return Err(ExecutorError::Network(format!("read: {}", e))),
+        };
+
+        if eof_was_unexpected {
+            check_http_completeness(&raw_response)
+                .map_err(|reason| ExecutorError::Network(format!("read: {}", reason)))?;
         }
 
         let latency_ms = start.elapsed().as_millis() as u64;
@@ -304,6 +314,84 @@ impl TargetExecutor for RawHttpExecutor {
 /// U+FFFD جایگزین می‌کنه و برگشت‌ناپذیر خرابشون می‌کنه. این‌جا فقط
 /// بخش هدر (که ASCII/متنیه) lossy-decode می‌شه؛ بدنه تا آخرین لحظه
 /// Vec<u8> خام می‌مونه.
+/// فقط برای مسیری که TLS با `UnexpectedEof` (بدون `close_notify`) بسته
+/// شده صدا زده می‌شه. ثابت می‌کنه پاسخِ خامِ دریافت‌شده واقعاً از نظر
+/// HTTP کامله، نه اینکه صرفاً «هرچی تا الان رسیده».
+///
+/// سه حالت:
+/// - هنوز به انتهای header نرسیده (`\r\n\r\n` پیدا نشده) یا status-line
+///   نامعتبره → قطعاً ناقص، رد می‌شه.
+/// - `Transfer-Encoding: chunked` → باید `decode_chunked` موفق بشه
+///   (یعنی واقعاً به chunk صفر برسه)؛ وگرنه رد می‌شه.
+/// - `Content-Length: N` → بدنه‌ی خام باید حداقل N بایت داشته باشه؛
+///   کمتر از اون یعنی قطع‌شده، رد می‌شه.
+/// - هیچ‌کدوم (پاسخِ close-delimited خالص، طبق RFC 7230 طولش فقط با
+///   بسته‌شدن کانکشن معلوم می‌شه) → هیچ سیگنال HTTP-سطحی برای اثبات
+///   کامل بودن بدنه وجود نداره؛ تنها چیزی که می‌تونیم تضمین کنیم همون
+///   header کامله. این دقیقاً هم‌ارز ریسکیه که با EOF تمیزِ TCP معمولی
+///   همیشه داشتیم و پذیرفتیم، پس این‌جا هم قبول می‌شه.
+fn check_http_completeness(raw: &[u8]) -> Result<(), String> {
+    let split = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .ok_or_else(|| "connection closed before HTTP headers completed".to_string())?;
+
+    let head = String::from_utf8_lossy(&raw[..split]);
+    let raw_body = &raw[split + 4..];
+
+    let status_ok = head
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse::<u16>().ok())
+        .is_some();
+    if !status_ok {
+        return Err(format!(
+            "connection closed with an invalid/incomplete status line: {:?}",
+            head.lines().next().unwrap_or("")
+        ));
+    }
+
+    let mut headers = Vec::new();
+    for line in head.lines().skip(1) {
+        if let Some((k, v)) = line.split_once(':') {
+            headers.push((k.trim().to_string(), v.trim().to_string()));
+        }
+    }
+
+    let is_chunked = headers.iter().any(|(k, v)| {
+        k.eq_ignore_ascii_case("transfer-encoding") && v.to_ascii_lowercase().contains("chunked")
+    });
+    if is_chunked {
+        return match decode_chunked(raw_body) {
+            Some(_) => Ok(()),
+            None => Err(
+                "connection closed before chunked body reached its terminating chunk".to_string(),
+            ),
+        };
+    }
+
+    let content_length = headers.iter().find_map(|(k, v)| {
+        if k.eq_ignore_ascii_case("content-length") {
+            v.trim().parse::<usize>().ok()
+        } else {
+            None
+        }
+    });
+    if let Some(expected) = content_length {
+        if raw_body.len() < expected {
+            return Err(format!(
+                "connection closed with a truncated body: got {} of {} declared Content-Length bytes",
+                raw_body.len(),
+                expected
+            ));
+        }
+    }
+
+    // close-delimited خالص: هیچ تضمین بیشتری ممکن نیست، header کامل بودن
+    // کافیه (هم‌ارز با پذیرش EOF تمیزِ TCP در حالت عادی).
+    Ok(())
+}
+
 fn parse_raw_http_response(raw: &[u8]) -> (u16, Vec<(String, String)>, String) {
     // پیدا کردن "\r\n\r\n" روی بایت‌ها، نه روی رشته
     let split = match raw.windows(4).position(|w| w == b"\r\n\r\n") {
