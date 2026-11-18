@@ -146,6 +146,8 @@
   button.danger:hover:not(:disabled){background:var(--red);border-color:var(--red);color:white}
   button.stop{background:var(--red);border-color:var(--red);color:white}
   button.stop:hover:not(:disabled){background:#ff6b62;border-color:#ff6b62}
+  button.skip{background:var(--yellow);border-color:var(--yellow);color:#1a1a1a}
+  button.skip:hover:not(:disabled){background:#e0a82e;border-color:#e0a82e}
   .actions{display:flex;gap:8px;padding:0 32px 16px;flex-wrap:wrap}
 
   .info-grid{display:grid;grid-template-columns:1fr;gap:20px}
@@ -332,6 +334,7 @@
             </button>
             <button onclick="openNewLabModal()" title="Create a new lab">+ New</button>
             <button onclick="runAll()" title="Run all visible labs sequentially">▶ Run all</button>
+            <button class="skip" id="skip-btn" onclick="skipCurrentLab()" style="display:none" title="Skip the currently running lab">⏭ Skip</button>
           </div>
         </div>
 
@@ -493,7 +496,7 @@ function stateLabel(s) {
   if (s.kind === 'running')   return `running · ${s.attempt}/${s.max}`;
   if (s.kind === 'passed')    return `passed · ${s.attempts} attempts`;
   if (s.kind === 'failed')    return `failed · ${s.attempts} attempts`;
-  if (s.kind === 'cancelled') return `cancelled`;
+  if (s.kind === 'cancelled') return 'cancelled';
   return s.kind;
 }
 
@@ -681,7 +684,7 @@ function renderWelcome() {
           <ul class="welcome-list">
             <li><span class="ico">🐳</span><span>Click the <strong>Live console</strong> at the bottom to see docker output while it runs.</span></li>
             <li><span class="ico">⚙️</span><span>Server settings (host / port / auto_manage_box) from the gear icon next to the logo.</span></li>
-            <li><span class="ico">▶</span><span>Run one or all; <code>■ Stop</code> cancels cleanly.</span></li>
+            <li><span class="ico">▶</span><span>Run one or all; <code>■ Stop</code> cancels cleanly; <code>⏭ Skip</code> during Run All moves to the next lab.</span></li>
             <li><span class="ico">📄</span><span>Each run produces a report under the Reports tab.</span></li>
           </ul>
         </div>
@@ -703,8 +706,11 @@ async function loadLabs() {
     const r = await fetch('/api/labs');
     labs = await r.json();
     renderLabList();
+    const anyRunning = labs.some(l => l.status?.kind === 'running');
+    const sb = $('skip-btn');
+    if (sb) sb.style.display = anyRunning ? 'inline-flex' : 'none';
     if (stopRequested && currentIdx !== null && labs[currentIdx]?.status?.kind !== 'running') resetStopBtn();
-    if (stopRequested && !labs.some(l => l.status?.kind === 'running')) resetStopBtn();
+    if (stopRequested && !anyRunning) resetStopBtn();
     if (currentIdx !== null && labs[currentIdx]) updateHeaderStatus();
     else if (currentIdx === null && document.querySelector('.welcome')) renderWelcome();
   } catch (e) { console.error(e); }
@@ -813,6 +819,14 @@ async function runAll() {
     if (r.ok) { toast(`Running ${indices.length} lab(s)`); startPolling(); }
     else if (r.status === 409) toast('Another lab is already running — stop it first', true);
     else toast((await r.text()).slice(0, 100) || 'Failed to start', true);
+  } catch (e) { toast('Network error', true); }
+}
+
+async function skipCurrentLab() {
+  try {
+    const r = await fetch('/api/skip', { method: 'POST' });
+    if (r.ok) toast('Skipping current lab…');
+    else toast((await r.text()).slice(0, 80) || 'Skip failed', true);
   } catch (e) { toast('Network error', true); }
 }
 
@@ -1250,7 +1264,6 @@ function setupYamlEditor() {
         el.value = v.slice(0, start) + '  ' + v.slice(end);
         el.setSelectionRange(start + 2, start + 2);
       } else {
-        // indent/outdent every selected line
         const lineStart = v.lastIndexOf('\n', start - 1) + 1;
         let lineEnd = v.indexOf('\n', end); if (lineEnd === -1) lineEnd = v.length;
         const block = v.slice(lineStart, lineEnd);
