@@ -82,6 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         reports_dir: config.paths.reports_dir.clone(),
         auto_manage_box: auto_manage_box.clone(),   // ← بود: config.server.auto_manage_box
         cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        stop_batch: Arc::new(AtomicBool::new(false)),
         started_boxes: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
     });
 

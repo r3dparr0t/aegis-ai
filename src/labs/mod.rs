@@ -29,6 +29,7 @@ pub struct LabContext {
     pub reports_dir: std::path::PathBuf,
     pub auto_manage_box: Arc<AtomicBool>,
     pub cancel: Arc<AtomicBool>,
+    pub stop_batch: Arc<std::sync::atomic::AtomicBool>,
     pub started_boxes: Arc<std::sync::Mutex<HashSet<std::path::PathBuf>>>,
 }
 

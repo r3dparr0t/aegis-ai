@@ -35,6 +35,7 @@ pub async fn serve(addr: &str, app: AppCtx) -> Result<(), Box<dyn std::error::Er
         .route("/api/provider", get(handlers::get_provider).post(handlers::set_provider))
         .route("/api/models", get(handlers::list_models))
         .route("/api/run-all", post(handlers::run_all))
+        .route("/api/skip", axum::routing::post(handlers::skip_lab))
         .route("/api/stop", post(handlers::stop_lab))
         .route("/api/labs/reload", post(handlers::reload_labs))
         .route("/api/settings", get(handlers::get_settings).post(handlers::update_settings))  // ★

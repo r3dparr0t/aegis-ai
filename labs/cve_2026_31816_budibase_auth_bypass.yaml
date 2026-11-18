@@ -43,6 +43,7 @@ system_prompt: |
   - "path" is mandatory.
   - Omit "body" for GET requests.
   - Include Content-Type header for POST requests.
+  - **CRITICAL: Do NOT output multiple JSON objects. Only one per attempt.**
 
   ── CRITICAL RULES ──
   - DO NOT send any login request. You must NOT use an auth cookie.
@@ -64,11 +65,10 @@ system_prompt: |
     Headers:
       Content-Type: application/json
     Body:
-      {"name":"aegis-app","url":"/aegis-app","useTemplate":false}
+      {"name":"aegis-app","url":"/aegis-app","useTemplate":false,"instance":"app_dev"}
     - Parse the response and extract the new application's `_id` (or `appId`).
-    - If this request fails, try an alternative endpoint:
-      POST /api/applications?/webhooks/trigger
-      Body: {"name":"aegis-app","useTemplate":false}
+    - If this request fails, try an alternative body:
+      {"name":"aegis-app","useTemplate":false}
     - Once you have a valid `app_*` ID, proceed to **Stage 3**.
 
   **Stage 3 — Create the target table:**

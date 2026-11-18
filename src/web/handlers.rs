@@ -449,9 +449,9 @@ pub async fn run_all(
         return (StatusCode::CONFLICT, "a lab is already running").into_response();
     }
 
-    // ★ فلگ stale از Stop قبلی رو صفر کن. اینجا بی‌خطره چون هیچ labی
-    //    در حال اجرا نیست (چک بالا).
+    // ★ reset هر دو فلگ برای batch تازه
     app.ctx.cancel.store(false, std::sync::atomic::Ordering::SeqCst);
+    app.ctx.stop_batch.store(false, std::sync::atomic::Ordering::SeqCst);
 
     let labs_snapshot: Vec<Arc<Lab>> = app.labs.read().unwrap().clone();
 
@@ -477,7 +477,7 @@ pub async fn run_all(
 
     tokio::spawn(async move {
         for lab in selected.iter() {
-            if ctx.cancel.load(std::sync::atomic::Ordering::SeqCst) {
+            if ctx.stop_batch.load(std::sync::atomic::Ordering::SeqCst) {
                 eprintln!("[STOP] run_all aborted before '{}'", lab.id());
                 break;
             }
@@ -488,17 +488,20 @@ pub async fn run_all(
                     acquired = true;
                     break;
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                if ctx.cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                // ★ اگه Stop وسط انتظار بیاد، فوراً بیرون بیا (نه ۶۰ ثانیه انتظار)
+                if ctx.stop_batch.load(std::sync::atomic::Ordering::SeqCst) {
                     break;
                 }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
 
             if !acquired {
-                eprintln!(
-                    "⚠️  run_all: could not acquire run_lock for '{}' — aborting batch",
-                    lab.id()
-                );
+                if !ctx.stop_batch.load(std::sync::atomic::Ordering::SeqCst) {
+                    eprintln!(
+                        "⚠️  run_all: could not acquire run_lock for '{}' — aborting batch",
+                        lab.id()
+                    );
+                }
                 break;
             }
 
@@ -508,7 +511,6 @@ pub async fn run_all(
 
     (StatusCode::OK, "started").into_response()
 }
-
 pub async fn list_reports(
     State(app): State<AppCtx>,
     Path(idx): Path<usize>,
@@ -628,6 +630,15 @@ pub async fn set_provider(
     (StatusCode::OK, "switched").into_response()
 }
 
+
+pub async fn skip_lab(State(app): State<AppCtx>) -> impl IntoResponse {
+    if app.ctx.run_lock.lock().unwrap().is_none() {
+        return (StatusCode::CONFLICT, "no lab is running").into_response();
+    }
+    app.ctx.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+    (StatusCode::OK, "skipping...").into_response()
+}
+
 pub async fn stop_lab(State(app): State<AppCtx>) -> impl IntoResponse {
     let running_id = app.ctx.run_lock.lock().unwrap().as_ref().map(|l| l.id());
     match running_id {
@@ -635,6 +646,7 @@ pub async fn stop_lab(State(app): State<AppCtx>) -> impl IntoResponse {
         None => eprintln!("[STOP] requested, but no lab is running"),
     }
     app.ctx.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+    app.ctx.stop_batch.store(true, std::sync::atomic::Ordering::SeqCst);
     (StatusCode::OK, "stopping...").into_response()
 }
 
