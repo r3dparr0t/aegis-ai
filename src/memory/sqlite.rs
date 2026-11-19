@@ -37,6 +37,8 @@ impl SqliteMemoryRepository {
         attempt_number: u32,
         request: &LlmRequest,
         response: &LlmResponse,
+        model_output: &str,
+        request_sent: &str,
         eval_result: &EvaluationResult,
     ) -> Result<String, sqlx::Error> {
         let attempt_id = Uuid::new_v4().to_string();
@@ -45,10 +47,13 @@ impl SqliteMemoryRepository {
         let latency_ms = response.latency_ms as i64;
 
         // ۱. ثبت تلاش
+        // model_output = خروجی خام مدل، قبل از هر تغییری
+        // request_sent = payload نهایی که به executor رفته (بعد از transform)
+        // output = بدنه‌ی پاسخ سرور هدف (یا پیام خطا در مسیرهای early-exit)
         sqlx::query(
             r#"
-            INSERT INTO attempts (id, execution_id, attempt_number, system_prompt, output, prompt_tokens, completion_tokens, latency_ms)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO attempts (id, execution_id, attempt_number, system_prompt, output, model_output, request_sent, prompt_tokens, completion_tokens, latency_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&attempt_id)
@@ -56,6 +61,8 @@ impl SqliteMemoryRepository {
         .bind(attempt_number as i64)
         .bind(&request.system_prompt)
         .bind(&response.output)
+        .bind(model_output)
+        .bind(request_sent)
         .bind(prompt_tokens)
         .bind(completion_tokens)
         .bind(latency_ms)
@@ -261,7 +268,7 @@ impl SqliteMemoryRepository {
 
         let attempt_rows = sqlx::query(
             r#"
-            SELECT a.attempt_number, a.output, a.latency_ms, e.is_valid, e.error_category, e.error_details
+            SELECT a.attempt_number, a.output, a.model_output, a.request_sent, a.latency_ms, e.is_valid, e.error_category, e.error_details
             FROM attempts a
             JOIN evaluations e ON e.attempt_id = a.id
             WHERE a.execution_id = ?
@@ -283,6 +290,8 @@ impl SqliteMemoryRepository {
 
             attempts.push(AttemptReport {
                 attempt_number: row.get("attempt_number"),
+                model_output: row.get("model_output"),
+                request_sent: row.get("request_sent"),
                 output: row.get("output"),
                 is_valid,
                 error_category: row.get("error_category"),

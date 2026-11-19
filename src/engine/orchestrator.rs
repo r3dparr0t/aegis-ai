@@ -341,6 +341,13 @@ impl ExecutionEngine {
                 latency_ms: response.latency_ms,
             });
 
+            // خروجی خام مدل را اینجا — قبل از Shell، JSON extraction و هر تغییر دیگری —
+            // نگه می‌داریم تا در گزارش نهایی دقیقاً همان چیزی که Provider برگردانده ثبت شود.
+            let raw_model_output = response.output.clone();
+            // payload نهایی که به executor رفته؛ هر جا payload شکل گرفت آپدیت می‌شه.
+            // در مسیرهایی که به execute نرسیده (shell_failed، json_parse_failed) خالی می‌ماند.
+            let mut request_sent = String::new();
+
             // ─── Shell Processing (قبل از extract_json_object) ───
             if let Some(shell) = &self.config.shell {
                 let crate::executor::shell::ProcessedResponse {
@@ -370,6 +377,8 @@ impl ExecutionEngine {
                                 current_attempt,
                                 &request,
                                 &response,
+                                &raw_model_output,
+                                &request_sent,
                                 &eval_result,
                                 &lesson_ids_used_this_attempt,
                                 &mut accumulated_lessons,
@@ -434,6 +443,8 @@ impl ExecutionEngine {
                         current_attempt,
                         &request,
                         &response,
+                        &raw_model_output,
+                        &request_sent,
                         &eval_result,
                         &lesson_ids_used_this_attempt,
                         &mut accumulated_lessons,
@@ -473,6 +484,8 @@ impl ExecutionEngine {
                                 current_attempt,
                                 &request,
                                 &response,
+                                &raw_model_output,
+                                &request_sent,
                                 &eval_result,
                                 &lesson_ids_used_this_attempt,
                                 &mut accumulated_lessons,
@@ -512,6 +525,8 @@ impl ExecutionEngine {
                         current_attempt,
                         &request,
                         &response,
+                        &raw_model_output,
+                        &request_sent,
                         &eval_result,
                         &lesson_ids_used_this_attempt,
                         &mut accumulated_lessons,
@@ -526,6 +541,7 @@ impl ExecutionEngine {
             // Execute
             // -------------------------------------------------------------------
             let payload_str = payload.to_string();
+            request_sent = payload_str.clone();
             self.state(ExecutionState::Executing {
                 payload: payload.clone(),
             });
@@ -556,6 +572,8 @@ impl ExecutionEngine {
                                     current_attempt,
                                     &request,
                                     &response,
+                                    &raw_model_output,
+                                    &request_sent,
                                     &eval_result,
                                     &lesson_ids_used_this_attempt,
                                     &mut accumulated_lessons,
@@ -625,6 +643,8 @@ impl ExecutionEngine {
                 current_attempt,
                 &request,
                 &recorded_response,
+                &raw_model_output,
+                &request_sent,
                 &eval_result,
                 &lesson_ids_used_this_attempt,
                 &mut accumulated_lessons,
@@ -654,13 +674,15 @@ impl ExecutionEngine {
         attempt_number: u32,
         request: &LlmRequest,
         response: &LlmResponse,
+        model_output: &str,
+        request_sent: &str,
         eval_result: &EvaluationResult,
         lesson_ids_used: &[String],
         accumulated_lessons: &mut Vec<AppliedLesson>,
     ) -> Result<(), EngineError> {
         let attempt_id = self
             .memory_repo
-            .record_attempt(execution_id, attempt_number, request, response, eval_result)
+            .record_attempt(execution_id, attempt_number, request, response, model_output, request_sent, eval_result)
             .await
             .map_err(|e| {
                 self.emit_error("database", format!("record_attempt failed: {}", e), true);

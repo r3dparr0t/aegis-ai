@@ -5,6 +5,12 @@ use serde::Serialize;
 #[derive(Debug, Serialize)]
 pub struct AttemptReport {
     pub attempt_number: i64,
+    /// خروجی خام مدل — JSON‌ای که مدل تولید کرده، قبل از هر تغییری.
+    pub model_output: String,
+    /// payload نهایی که به executor رفته (بعد از transform)؛
+    /// در مسیرهایی که به execute نرسیده (shell_failed، json_parse_failed) خالی است.
+    pub request_sent: String,
+    /// بدنه‌ی پاسخ سرور هدف (به همراه هدرها در صورت وجود).
     pub output: String,
     pub is_valid: bool,
     pub error_category: Option<String>,
