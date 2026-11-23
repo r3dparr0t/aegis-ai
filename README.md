@@ -66,13 +66,28 @@ from the real target count.
 
 ## Quick Start
 
-### 1. Prerequisites
+### 1. Get the source
 
-- **Rust** (stable 1.75+)
+Clone the repository with its PHPGGC submodule:
+
+```bash
+git clone --recurse-submodules https://github.com/r3dparr0t/aegis-ai.git
+cd aegis-ai
+```
+
+If you already cloned the repository without submodules, initialize them with:
+
+```bash
+git submodule update --init --recursive
+```
+
+### 2. Prerequisites
+
+- **Rust** (stable toolchain; Cargo 1.78 or newer is required for the committed lockfile format).
 - **Ollama** (or an API key for OpenAI-compatible providers)
 - **Docker** + Docker Compose (for the example labs)
 
-### 2. Start the LLM
+### 3. Start the LLM
 
 ```bash
 ollama pull qwen2.5:3b
@@ -81,7 +96,7 @@ ollama serve
 
 A 3B model is enough for the built-in labs.
 
-### 3. Configure the lab target
+### 4. Configure the lab target
 
 Target could be local or not, if you're going to use Docker containers for test, you do **not** normally need to start Docker containers manually. Each lab can define its own
 `box.compose_dir` in the YAML file. When `auto_manage_box = true` (the default),
@@ -101,7 +116,7 @@ cd boxes/ssrf
 docker compose up -d --build
 ```
 
-### 4. Run Aegis-AI
+### 5. Run Aegis-AI
 
 ```bash
 cargo run
