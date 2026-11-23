@@ -107,7 +107,7 @@ docker compose up -d --build
 cargo run
 ```
 
-The web panel opens at **http://127.0.0.1:7777**. Pick a lab, hit **Run**, watch
+The web panel opens at **http://127.0.0.1:7788**. Pick a lab, hit **Run**, watch
 the attempt stream live. Every run produces a report under `reports/`.
 
 ---
