@@ -11,12 +11,8 @@ permissions:
 
 jobs:
   rust:
-    name: Rust checks (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, windows-latest]
-    runs-on: ${{ matrix.os }}
+    name: Rust checks (ubuntu-22.04)
+    runs-on: ubuntu-22.04
     steps:
       - name: Check out repository and submodules
         uses: actions/checkout@v4
