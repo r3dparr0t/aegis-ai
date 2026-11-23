@@ -81,15 +81,25 @@ ollama serve
 
 A 3B model is enough for the built-in labs.
 
-### 3. Start the vulnerable lab network
+### 3. Configure the lab target
+
+You do **not** normally need to start Docker containers manually. Each lab can define its own
+`box.compose_dir` in the YAML file. When `auto_manage_box = true` (the default),
+Aegis starts the required Compose project, waits for the target health check, and manages
+the box lifecycle for that lab.
+
+Before running a lab, check that its configured box path exists and points to the directory
+containing that lab's `docker-compose.yml`. If the target is already running on another
+server, use that server's reachable address in `target.url` instead of a local address;
+a local Docker box is not required.
+
+Manual Docker startup is optional. If you want to run a box independently of Aegis, go to
+that box's directory and run Compose there. For example:
 
 ```bash
+cd boxes/ssrf
 docker compose up -d --build
 ```
-
-This brings up:
-- `vulnerable-api` on port `5000` (the SSRF target)
-- `internal-admin` on the lab network (the secret to reach)
 
 ### 4. Run Aegis-AI
 
@@ -236,6 +246,12 @@ meta:
   name: "Lab 6 — My scenario"
   description: "One-line summary shown in the UI."
   order: 6
+
+# Optional: let Aegis manage this lab's Docker Compose box.
+# The path is relative to the directory from which Aegis is started.
+box:
+  compose_dir: "boxes/my_box"
+  wait_secs: 3
 
 max_attempts: 5
 
