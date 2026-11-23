@@ -51,6 +51,7 @@ from the real target count.
 - **Episodic memory (SQLite)** — every execution, attempt, and lesson is stored and queryable.
 - **Task-scoped memory** — lessons for `ssrf_ip_encoding_bypass` don't leak into `ssrf_webhook_blacklist`.
 - **YAML-driven labs** — adding a new lab is one file, zero Rust changes.
+- **Raw HTTPS support** — byte-preserving HTTP requests over TCP or TLS, useful for labs that require exact request paths.
 - **Optional per-lab shell execution** — a lab can expose a single fixed script to the
   model via `{{shell_output [...]}}` placeholders. The script path is set in YAML and
   never taken from model output; arguments are passed as argv, not via a shell.
@@ -130,6 +131,11 @@ these use a **raw TCP executor** that sends the HTTP request byte-for-byte —
 bypassing the WHATWG URL normalization in the `url` crate, which would
 otherwise collapse `.%2e` to `..` before the request leaves the client.
 (The same reason `curl` has `--path-as-is`.)
+
+For HTTPS targets, the raw executor currently **does not verify server certificates**. This allows
+self-signed certificates commonly used in local CVE labs, but it also means the
+connection does not authenticate the server. Use it only against targets and networks
+you control. System-CA and custom-CA verification policies are not implemented yet.
 
 Example — the Apache CVE lab:
 
@@ -261,6 +267,19 @@ system_prompt: |
 ```
 
 Restart the app, and the new lab appears in the sidebar. No code changes.
+
+### Troubleshooting a Lab
+
+If a lab does not pass, the easiest first step is to use its execution report:
+
+1. Find the generated report in the `reports/` directory.
+2. Give **both the report and your lab YAML file** to another AI assistant.
+3. Ask it to analyze why the lab failed, identify the likely cause, and suggest fixes to the lab.
+4. Apply the changes and run the lab again. Repeat as needed, checking each new report.
+
+If you still cannot get it working, open a GitHub Issue and attach the lab YAML and
+its report. Include what you expected to happen and what happened instead so the
+problem can be reproduced and investigated.
 
 ### Placeholders in prompts and goals
 
