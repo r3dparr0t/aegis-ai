@@ -2,7 +2,7 @@
 name = "aegis-ai"
 version = "0.2.0"
 edition = "2021"
-authors = ["redparrot https://github.com/r3dparr0t>"]
+authors = ["redparrot <https://github.com/r3dparr0t>"]
 
 [dependencies]
 async-trait = "0.1"
