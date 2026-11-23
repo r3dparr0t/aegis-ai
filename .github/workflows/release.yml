@@ -22,7 +22,7 @@ jobs:
       - name: Check out source and submodules
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag && 'main' || github.ref }}
           submodules: recursive
 
       - name: Install stable Rust
@@ -61,7 +61,7 @@ jobs:
       - name: Check out source and submodules
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag && 'main' || github.ref }}
           submodules: recursive
 
       - name: Install stable Rust
