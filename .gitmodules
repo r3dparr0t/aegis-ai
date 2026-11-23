@@ -1,0 +1,3 @@
+[submodule "scripts/phpggc"]
+	path = scripts/phpggc
+	url = https://github.com/ambionics/phpggc.git
