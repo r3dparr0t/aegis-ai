@@ -64,6 +64,29 @@ from the real target count.
 
 ---
 
+## Download prebuilt binaries
+
+Ready-to-run packages for **Windows x64** and **Linux x64** are attached to each
+GitHub Release when the build workflow has completed.
+
+1. Open the [latest release](https://github.com/r3dparr0t/aegis-ai/releases/latest).
+2. Download the ZIP matching your operating system and extract it.
+3. Keep the extracted folder structure intact; the executable expects the
+   bundled configuration, labs, migrations, prompts, and web assets beside it.
+4. Start Aegis-AI from that folder:
+   - **Windows:** run `aegis-ai.exe`.
+   - **Linux:** run `./aegis-ai` (make it executable first with
+     `chmod +x aegis-ai` if needed).
+
+You still need a reachable LLM provider (for example, Ollama) and Docker
+for labs that use local containers. API-based providers may require keys in
+a `.env` file; copy `.env.example` to `.env` and add your key.
+
+The Windows package includes the application and lab assets. Labs that depend
+on Unix shell scripts or Unix-only helper tooling may require Linux instead.
+
+---
+
 ## Quick Start
 
 ### 1. Get the source
