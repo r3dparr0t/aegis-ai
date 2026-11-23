@@ -83,7 +83,7 @@ A 3B model is enough for the built-in labs.
 
 ### 3. Configure the lab target
 
-You do **not** normally need to start Docker containers manually. Each lab can define its own
+Target could be local or not, if you're going to use Docker containers for test, you do **not** normally need to start Docker containers manually. Each lab can define its own
 `box.compose_dir` in the YAML file. When `auto_manage_box = true` (the default),
 Aegis starts the required Compose project, waits for the target health check, and manages
 the box lifecycle for that lab.
@@ -373,6 +373,7 @@ src/
 │   ├── orchestrator.rs   The Generate→Execute→Evaluate→Reflect loop
 │   └── state.rs          ExecutionState (Preparing, Generating, Executing, …)
 ├── executor/
+│   ├── tls.rs            HTTPS transport
 │   ├── http.rs           HTTP transport
 │   ├── raw.rs            Raw TCP transport (byte-for-byte, for CVEs)
 │   ├── json.rs           LLM output parsing (handles </think>, fences, noise)
