@@ -518,6 +518,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)]
     async fn process_no_placeholder_passthrough() {
         let rt = ShellRuntime::new("/bin/true", 5).unwrap_or_else(|_| {
             // fallback if /bin/true missing (very unlikely on Unix).
@@ -529,6 +530,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)]
     async fn process_multiple_placeholders_no_exec() {
         let rt = ShellRuntime::new("/bin/true", 5).unwrap();
         let text = r#"{{shell_output ["a"]}} {{shell_output ["b"]}}"#;
